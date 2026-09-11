@@ -1,0 +1,10 @@
+# 원본 데이터 -- 저작권/용량 문제로 git에 올리지 않음. 팀원 각자
+# METAL_ETCH_DATA.md의 링크에서 로컬로 다운로드해서 씁니다.
+*.mat
+
+# 전처리 결과물 -- preprocess.py로 각자 로컬에서 재생성 가능하므로 git에 안 올림
+processed/
+
+# 파이썬 캐시
+__pycache__/
+*.pyc
