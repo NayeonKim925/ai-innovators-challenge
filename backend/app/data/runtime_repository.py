@@ -1,0 +1,82 @@
+"""Runtime repository that deliberately cannot read evaluation data."""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+
+from ..domain import Capability, DatasetName, Incident
+
+FORBIDDEN_RUNTIME_KEYS = frozenset(
+    {
+        "label",
+        "label_value",
+        "root_cause",
+        "ground_truth",
+        "manipulated_variable",
+        "diagnosis_time",
+        "fault_name",
+        "split",
+    }
+)
+
+
+def runtime_root() -> Path:
+    return Path(os.getenv("RUNTIME_DATA_DIR", "data/runtime")).resolve()
+
+
+def _reject_forbidden_keys(value: object) -> None:
+    if isinstance(value, dict):
+        forbidden = FORBIDDEN_RUNTIME_KEYS.intersection(value)
+        if forbidden:
+            raise ValueError(f"Runtime data contains forbidden evaluation keys: {sorted(forbidden)}")
+        for nested in value.values():
+            _reject_forbidden_keys(nested)
+    elif isinstance(value, list):
+        for nested in value:
+            _reject_forbidden_keys(nested)
+
+
+class JsonRuntimeRepository:
+    """Reads one prepared incident index per dataset from `data/runtime`.
+
+    Data preparation scripts are responsible for creating these files. This repository
+    intentionally has no path or import for `data/evaluation`.
+    """
+
+    def __init__(self, root: Path | None = None) -> None:
+        self.root = (root or runtime_root()).resolve()
+
+    def _path_for(self, dataset: DatasetName) -> Path:
+        path = (self.root / dataset.value / "incidents.json").resolve()
+        if not path.is_relative_to(self.root):
+            raise ValueError("Runtime incident path escaped data root")
+        return path
+
+    def list_incidents(self, dataset: DatasetName | None = None) -> list[Incident]:
+        datasets = [dataset] if dataset else list(DatasetName)
+        incidents: list[Incident] = []
+        for name in datasets:
+            path = self._path_for(name)
+            if not path.exists():
+                continue
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(payload, list):
+                raise ValueError(f"Runtime index must be a list: {path}")
+            _reject_forbidden_keys(payload)
+            incidents.extend(Incident.model_validate(item) for item in payload)
+        return incidents
+
+    def get_incident(self, incident_id: str) -> Incident | None:
+        return next((item for item in self.list_incidents() if item.id == incident_id), None)
+
+    def dataset_status(self, dataset: DatasetName) -> dict[str, object]:
+        incidents = self.list_incidents(dataset)
+        capability_union = sorted({cap.value for item in incidents for cap in item.capabilities})
+        return {
+            "dataset": dataset.value,
+            "status": "ready" if incidents else "unprepared",
+            "incident_count": len(incidents),
+            "capabilities": capability_union,
+        }

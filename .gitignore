@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+
+# JavaScript
+node_modules/
+dist/
+
+# Local configuration and databases
+.env
+.env.*
+!.env.example
+*.db
+
+# Data: raw source files, generated runtime snapshots, and evaluation truth are local only.
+data/raw/*
+!data/raw/.gitkeep
+data/runtime/*
+!data/runtime/.gitkeep
+data/evaluation/*
+!data/evaluation/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+
+# Legacy Metal Etch inputs/outputs. Download or regenerate them locally.
+*.mat
+processed/
+loaders/__pycache__/
