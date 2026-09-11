@@ -1,0 +1,1 @@
+"""Manufacturing incident investigation backend."""
