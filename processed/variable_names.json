@@ -1,0 +1,17 @@
+{
+  "machine": {
+    "variable_names": "['Time          ' 'Step Number   ' 'BCl3 Flow     ' 'Cl2 Flow      '\n 'RF Btm Pwr    ' 'RF Btm Rfl Pwr' 'Endpt A       ' 'He Press      '\n 'Pressure      ' 'RF Tuner      ' 'RF Load       ' 'RF Phase Err  '\n 'RF Pwr        ' 'RF Impedance  ' 'TCP Tuner     ' 'TCP Phase Err '\n 'TCP Impedance ' 'TCP Top Pwr   ' 'TCP Rfl Pwr   ' 'TCP Load      '\n 'Vat Valve     ']",
+    "wave_axis": null,
+    "units": null
+  },
+  "oes": {
+    "variable_names": null,
+    "wave_axis": "[250.   261.8  266.6  272.2  278.3  284.6  288.25 308.25 309.25 324.8\n 327.5  336.98 364.33 388.   394.4  395.8  415.   532.6  544.2  556.7\n 580.   611.5  613.9  616.3  618.5  639.7  643.2  644.9  652.8  660.\n 669.5  670.6  674.   725.   740.8  748.5  753.7  770.6  773.2  781.\n 783.5  787.5  791.5  250.   261.8  266.6  272.2  278.3  284.6  288.25\n 308.25 309.25 324.8  327.5  336.98 364.33 388.   394.4  395.8  415.\n 532.6  544.2  556.7  580.   611.5  613.9  616.3  618.5  639.7  643.2\n 644.9  652.8  660.   669.5  670.6  674.   725.   740.8  748.5  753.7\n 770.6  773.2  781.   783.5  787.5  791.5  250.   261.8  266.6  272.2\n 278.3  284.6  288.25 308.25 309.25 324.8  327.5  336.98 364.33 388.\n 394.4  395.8  415.   532.6  544.2  556.7  580.   611.5  613.9  616.3\n 618.5  639.7  643.2  644.9  652.8  660.   669.5  670.6  674.   725.\n 740.8  748.5  753.7  770.6  773.2  781.   783.5  787.5  791.5 ]",
+    "units": null
+  },
+  "rfm": {
+    "variable_names": "['TIME  ' 'S1V1  ' 'S1V2  ' 'S1V3  ' 'S1V4  ' 'S1V5  ' 'S1I1  ' 'S1I2  '\n 'S1I3  ' 'S1I4  ' 'S1I5  ' 'S1P1  ' 'S1P2  ' 'S1P3  ' 'S1P4  ' 'S1P5  '\n 'S2V1  ' 'S2V2  ' 'S2V3  ' 'S2V4  ' 'S2V5  ' 'S2I1  ' 'S2I2  ' 'S2I3  '\n 'S2I4  ' 'S2I5  ' 'S2P1  ' 'S2P2  ' 'S2P3  ' 'S2P4  ' 'S2P5  ' 'S3V1  '\n 'S3V2  ' 'S3V3  ' 'S3V4  ' 'S3V5  ' 'S4V1  ' 'S4V2  ' 'S4V3  ' 'S4V4  '\n 'S4V5  ' 'S34PV1' 'S34PV2' 'S34PV3' 'S34PV4' 'S34PV5' 'S3I1  ' 'S3I2  '\n 'S3I3  ' 'S3I4  ' 'S3I5  ' 'S4I1  ' 'S4I2  ' 'S4I3  ' 'S4I4  ' 'S4I5  '\n 'S34PI1' 'S34PI2' 'S34PI3' 'S34PI4' 'S34PI5' 'S34V1 ' 'S34V2 ' 'S34V3 '\n 'S34V4 ' 'S34V5 ' 'S34I1 ' 'S34I2 ' 'S34I3 ' 'S34I4 ' 'S34I5 ']",
+    "wave_axis": null,
+    "units": "['(sec.)' '(Vrms)' '(Vrms)' '(Vrms)' '(Vrms)' '(Vrms)' '(Irms)' '(Irms)'\n '(Irms)' '(Irms)' '(Irms)' '(deg.)' '(deg.)' '(deg.)' '(deg.)' '(deg.)'\n '(Vrms)' '(Vrms)' '(Vrms)' '(Vrms)' '(Vrms)' '(Irms)' '(Irms)' '(Irms)'\n '(Irms)' '(Irms)' '(deg.)' '(deg.)' '(deg.)' '(deg.)' '(deg.)' '(Vrms)'\n '(Vrms)' '(Vrms)' '(Vrms)' '(Vrms)' '(Vrms)' '(Vrms)' '(Vrms)' '(Vrms)'\n '(Vrms)' '(deg.)' '(deg.)' '(deg.)' '(deg.)' '(deg.)' '(Vrms)' '(Vrms)'\n '(Vrms)' '(Vrms)' '(Vrms)' '(Vrms)' '(Vrms)' '(Vrms)' '(Vrms)' '(Vrms)'\n '(deg.)' '(deg.)' '(deg.)' '(deg.)' '(deg.)' '(Vrms)' '(Vrms)' '(Vrms)'\n '(Vrms)' '(Vrms)' '(Irms)' '(Irms)' '(Irms)' '(Irms)' '(Irms)']"
+  }
+}

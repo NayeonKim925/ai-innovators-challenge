@@ -1,0 +1,130 @@
+﻿entity_id,experiment_id,label_value,is_normal,has_machine,has_oes,has_rfm,complete_case
+2901,29,normal,True,True,True,True,True
+2902,29,normal,True,True,True,False,False
+2903,29,normal,True,True,True,True,True
+2904,29,normal,True,True,True,True,True
+2905,29,normal,True,True,True,True,True
+2906,29,normal,True,True,True,True,True
+2907,29,normal,True,True,True,True,True
+2908,29,normal,True,True,True,True,True
+2909,29,normal,True,True,True,True,True
+2910,29,normal,True,True,True,True,True
+2911,29,normal,True,True,True,True,True
+2912,29,normal,True,True,True,True,True
+2913,29,normal,True,True,True,True,True
+2914,29,normal,True,True,True,True,True
+2915,29,TCP +50,False,True,True,True,True
+2916,29,RF -12,False,True,False,False,False
+2917,29,RF +10,False,True,True,True,True
+2918,29,Pr +3,False,True,True,True,True
+2919,29,normal,True,True,True,False,False
+2920,29,normal,True,True,True,True,True
+2921,29,normal,True,True,True,True,True
+2922,29,normal,True,True,True,True,True
+2923,29,normal,True,True,True,True,True
+2924,29,normal,True,True,True,True,True
+2925,29,normal,True,True,True,True,True
+2926,29,normal,True,True,True,True,True
+2927,29,normal,True,True,True,True,True
+2928,29,normal,True,True,True,True,True
+2929,29,normal,True,True,True,True,True
+2930,29,normal,True,True,True,True,True
+2931,29,normal,True,True,True,True,True
+2932,29,normal,True,True,True,True,True
+2933,29,normal,True,True,True,True,True
+2934,29,normal,True,True,True,True,True
+2935,29,normal,True,True,True,True,True
+2936,29,TCP +10,False,True,True,True,True
+2937,29,BCl3 +5,False,True,True,True,True
+2938,29,Pr -2,False,True,True,True,True
+2939,29,Cl2 -5,False,True,True,True,True
+2940,29,He Chuck,False,True,True,True,True
+2941,29,normal,True,True,True,True,True
+2942,29,normal,True,True,True,True,True
+2943,29,normal,True,True,True,True,True
+3101,31,normal,True,True,True,True,True
+3102,31,normal,True,True,True,True,True
+3103,31,normal,True,True,True,True,True
+3104,31,normal,True,True,True,True,True
+3105,31,normal,True,True,True,True,True
+3106,31,normal,True,True,True,True,True
+3107,31,normal,True,True,True,True,True
+3108,31,normal,True,True,True,True,True
+3109,31,normal,True,True,True,True,True
+3110,31,normal,True,True,True,True,True
+3111,31,normal,True,True,True,True,True
+3112,31,normal,True,True,True,True,True
+3113,31,normal,True,True,True,True,True
+3114,31,normal,True,True,True,True,True
+3115,31,normal,True,True,True,True,True
+3116,31,normal,True,True,True,True,True
+3117,31,normal,True,True,True,True,True
+3118,31,normal,True,True,True,True,True
+3119,31,normal,True,True,True,True,True
+3120,31,TCP +30,False,True,True,True,True
+3121,31,Cl2 +5,False,True,True,True,True
+3122,31,RF +8,False,True,True,True,True
+3123,31,normal,True,True,True,True,True
+3124,31,normal,True,True,True,True,True
+3125,31,normal,True,True,True,True,True
+3126,31,normal,True,True,True,True,True
+3127,31,normal,True,True,True,True,True
+3128,31,normal,True,True,True,True,True
+3129,31,normal,True,True,True,True,True
+3130,31,normal,True,True,True,True,True
+3131,31,normal,True,True,True,True,True
+3132,31,normal,True,True,True,True,True
+3133,31,normal,True,True,True,True,True
+3134,31,normal,True,True,True,True,True
+3135,31,normal,True,True,True,True,True
+3136,31,normal,True,True,True,True,True
+3137,31,normal,True,True,True,True,True
+3138,31,normal,True,True,True,True,True
+3139,31,normal,True,True,True,True,True
+3140,31,normal,True,True,True,True,True
+3141,31,BCl3 -5,False,True,True,True,True
+3142,31,Pr +2,False,True,True,True,True
+3143,31,TCP -20,False,True,True,True,True
+3301,33,normal,True,True,True,True,True
+3302,33,normal,True,True,True,True,True
+3303,33,normal,True,True,True,True,True
+3304,33,normal,True,True,True,True,True
+3305,33,normal,True,True,True,True,True
+3306,33,normal,True,True,False,True,False
+3307,33,normal,True,True,True,True,True
+3308,33,normal,True,True,True,True,True
+3309,33,normal,True,True,True,True,True
+3310,33,normal,True,True,True,True,True
+3311,33,normal,True,True,True,True,True
+3312,33,normal,True,True,True,True,True
+3313,33,normal,True,True,True,True,True
+3314,33,normal,True,True,True,True,True
+3315,33,normal,True,True,True,True,True
+3316,33,normal,True,True,True,True,True
+3317,33,normal,True,True,True,True,True
+3318,33,TCP -15,False,True,True,True,True
+3319,33,Cl2 -10,False,True,True,True,True
+3320,33,RF -12,False,True,True,True,True
+3321,33,normal,True,True,True,True,True
+3322,33,normal,True,True,True,True,True
+3323,33,normal,True,True,True,True,True
+3324,33,normal,True,True,True,True,True
+3325,33,normal,True,True,False,True,False
+3326,33,normal,True,True,True,True,True
+3327,33,normal,True,True,True,True,True
+3328,33,normal,True,True,True,True,True
+3329,33,normal,True,True,True,True,True
+3330,33,normal,True,True,True,True,True
+3331,33,normal,True,True,True,True,True
+3332,33,normal,True,True,True,True,True
+3333,33,normal,True,True,True,True,True
+3334,33,normal,True,True,True,True,True
+3335,33,normal,True,True,True,True,True
+3336,33,normal,True,True,True,True,True
+3337,33,normal,True,True,True,True,True
+3338,33,normal,True,True,True,True,True
+3339,33,BCl3 +10,False,True,True,True,True
+3340,33,Pr +1,False,True,True,True,True
+3341,33,TCP +20,False,True,True,True,True
+3342,33,normal,True,True,True,True,True
+3343,33,normal,True,True,True,True,True
