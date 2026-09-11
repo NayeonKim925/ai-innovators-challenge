@@ -1,37 +1,32 @@
-# Manufacturing Incident Investigation
+# 제조 이상 조사 서비스
 
-Evidence-first research MVP for investigating manufacturing anomalies. The service is
-designed for an operator, process expert, and data analyst to inspect the same
-observations, candidate causes, and review history.
+제조 공정에서 발생한 이상을 조사하기 위한 **근거 중심(evidence-first) 연구용 MVP**입니다. 현장 운영자, 공정·설비 전문가, 데이터 분석가가 같은 관측값·원인 후보·검토 이력을 확인할 수 있도록 설계합니다.
 
-It is not a plant-control system. A ranked signal is an investigation candidate, not a
-confirmed physical root cause or maintenance instruction.
+이 서비스는 설비를 제어하는 시스템이 아닙니다. 화면의 후보 신호는 조사 우선순위일 뿐, 확정된 물리적 원인이나 정비 지시가 아닙니다.
 
-## Current build status
+## 현재 구현 상태
 
-- Shared runtime incident, evidence, candidate, and trace contracts: implemented
-- Data leakage guard between runtime observations and evaluation truth: implemented
-- FastAPI contract and bounded LangGraph workflow: implemented
-- Transparent active-alarm recency baseline: implemented
-- causRCA preparation and benchmark integration: next milestone
-- Metal Etch portability adapter: next milestone
-- Review persistence and React investigation UI: next milestone
+- 런타임 사건, 근거, 후보, 실행 이력의 공통 계약: 구현 완료
+- 서비스 입력과 평가 정답 간 데이터 누출 방지: 구현 완료
+- FastAPI API와 제한된 LangGraph 조사 워크플로우: 구현 완료
+- 활성 알람 최근순 기반의 투명한 기준선: 구현 완료
+- causRCA 데이터 준비 및 benchmark 연동: 다음 단계
+- Metal Etch 이식성 어댑터: 다음 단계
+- 전문가 검토 저장과 React 조사 UI: 다음 단계
 
-## Product and data decisions
+## 제품·데이터 결정
 
-The MVP has one workflow: **investigate a manufacturing anomaly collaboratively**.
+MVP는 여러 제조 AI 기능을 나열하지 않고, **제조 이상을 협업으로 조사하는 하나의 워크플로우**에 집중합니다.
 
-- causRCA is the primary benchmark because it has usable root-cause evaluation truth.
-- Metal Etch is a separate semiconductor portability adapter; it is not pooled with
-  causRCA and is not used for the headline ranking metric.
-- PHM, SECOM, and WM-811K are explicitly deferred rather than partially implemented.
+- **causRCA**는 원인 정답을 제공하므로 핵심 성능을 검증하는 주 benchmark입니다.
+- **Metal Etch**는 구조가 다른 반도체 식각 데이터를 같은 조사 흐름으로 연결하는 이식성 어댑터입니다. causRCA와 데이터를 합치지 않으며, 핵심 원인 순위 성능 주장에도 사용하지 않습니다.
+- **PHM, SECOM, WM-811K**는 MVP 기능이 아닌 후속 어댑터 후보입니다.
 
-Read [product scope](docs/PRODUCT.md), [data contract](docs/DATA_CONTRACT.md), and
-[evaluation plan](docs/EVALUATION.md) before adding a dataset or model.
+새 데이터셋이나 모델을 추가하기 전에는 [제품 범위](docs/PRODUCT.md), [데이터 계약](docs/DATA_CONTRACT.md), [평가 계획](docs/EVALUATION.md)을 읽어야 합니다.
 
-## Local setup
+## 로컬 실행
 
-Python 3.10 or later is required.
+Python 3.10 이상이 필요합니다.
 
 ```sh
 python -m pip install -e '.[dev]'
@@ -40,33 +35,27 @@ make lint
 make api
 ```
 
-The API starts at `http://127.0.0.1:8000`; OpenAPI documentation is at `/docs`.
-Without a prepared runtime bundle, `/api/datasets` reports `unprepared` and the service
-does not fabricate demo incidents.
+API는 `http://127.0.0.1:8000`, OpenAPI 문서는 `/docs`에서 확인합니다. 준비된 runtime 데이터가 없으면 `/api/datasets`는 `unprepared`를 반환하며, 서비스가 임의의 데모 사건을 만들지 않습니다.
 
-## Repository map
+## 저장소 구조
 
 ```text
-backend/app/domain.py      Shared, runtime-safe data contracts
-backend/app/data/          Dataset adapters and runtime-only repository
-backend/app/analytics/     Deterministic analysis tools
-backend/app/workflows/     Bounded LangGraph orchestration
-backend/tests/             API, workflow, and data-leakage tests
-data/                      Ignored raw/runtime/evaluation zones
-docs/                      Product, architecture, evaluation, ADRs
-scripts/                   Reproducible preparation commands
+backend/app/domain.py      런타임에서 안전하게 쓸 공통 데이터 계약
+backend/app/data/          데이터셋별 어댑터와 runtime 전용 저장소
+backend/app/analytics/     결정론적 분석 도구
+backend/app/workflows/     제한된 LangGraph 오케스트레이션
+backend/tests/             API·워크플로우·데이터 누출 방지 테스트
+data/                      Git에서 제외되는 raw/runtime/evaluation 영역
+docs/                      기획·아키텍처·평가·ADR 문서
+scripts/                   재현 가능한 데이터 준비 명령
 ```
 
-## Data safety
+## 데이터 안전성
 
-Evaluation labels never enter `data/runtime/`. The runtime repository rejects common
-truth fields such as `root_cause`, `label_value`, and `diagnosis_time`, and tests enforce
-this rule. New raw data, generated artifacts, local databases, and secrets are ignored
-by Git. Previously tracked Metal Etch assets are a legacy migration item and must not be
-extended; they will be untracked only after a reproducible download script is in place.
+평가 정답은 절대 `data/runtime/`에 들어가지 않습니다. runtime 저장소는 `root_cause`, `label_value`, `diagnosis_time` 등 정답성 필드를 거부하며, 이 규칙은 테스트로 검증합니다.
 
-## Legacy exploration files
+새 원본 데이터, 생성 산출물, 로컬 DB, 비밀키는 Git에서 제외됩니다. 기존에 추적된 Metal Etch 자산은 레거시 이전 대상이므로 더 늘리지 않습니다. 재현 가능한 다운로드 스크립트를 만든 뒤에만 Git 추적을 안전하게 해제합니다.
 
-The top-level Metal Etch loaders and `processed/` outputs predate this architecture.
-They are retained temporarily as research material and will be migrated to a dedicated
-Metal Etch adapter. Do not extend their metadata format as a service API.
+## 기존 Metal Etch 탐색 파일
+
+루트의 Metal Etch 로더와 `processed/` 출력은 새 아키텍처보다 먼저 작성된 데이터 탐색 결과입니다. 현재는 연구 자료로만 보존하며, 서비스 API로 확장하지 않습니다. 재사용 시에는 전용 Metal Etch 어댑터로 이전하고 관측 데이터와 평가 라벨을 분리해야 합니다.

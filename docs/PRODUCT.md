@@ -1,40 +1,31 @@
-# Product scope
+# 제품 범위
 
-## Problem
+## 문제
 
-When a manufacturing anomaly occurs, an operator, process expert, and data analyst
-often inspect separate dashboards and files. The team needs a shared, auditable way to
-move from observed signals to a **reviewable investigation**, rather than an AI answer
-with no traceable basis.
+제조 이상이 발생하면 운영자, 공정 전문가, 데이터 분석가는 각자 다른 대시보드와 파일을 확인하는 경우가 많습니다. 이 서비스는 근거 없는 AI 답변 대신, 관측 신호에서 **검토 가능한 조사 결과**로 이동하는 공통·감사 가능한 흐름을 제공합니다.
 
 ## MVP
 
-The MVP accepts a prepared incident, runs deterministic anomaly/root-cause tools,
-collects observation-linked evidence, drafts a bounded investigation report, and stores
-an explicit human decision. It does not control equipment, issue repair instructions,
-or claim a diagnosed candidate is a confirmed cause.
+준비된 사건을 입력받아 결정론적 이상·원인분석 도구를 실행하고, 관측값에 연결된 근거를 모아 제한된 조사 보고서 초안을 만듭니다. 이후 사람이 명시적으로 판단합니다. 장비를 제어하거나, 정비 지시를 만들거나, 후보를 확정 원인으로 주장하지 않습니다.
 
-## Dataset strategy
+## 데이터셋 전략
 
-- **Primary benchmark:** causRCA. It supplies HIL incidents and evaluation truth for
-  measurable root-cause ranking.
-- **Portability adapter:** Metal Etch. It demonstrates that the same incident/evidence
-  workflow can represent a different semiconductor data structure. Its weak fault-label
-  mapping must not be used for the primary performance claim.
-- PHM, SECOM, and WM-811K are future adapters, not MVP features.
+- **주 benchmark: causRCA**. HIL 사건과 평가 정답을 제공해 원인 후보 순위를 측정할 수 있습니다.
+- **이식성 어댑터: Metal Etch**. 다른 반도체 데이터 구조도 같은 사건·근거 워크플로우로 표현할 수 있음을 보여줍니다. 다만 약한 fault-label 매핑을 핵심 성능 주장에 사용하지 않습니다.
+- PHM, SECOM, WM-811K는 후속 어댑터 후보이며 MVP 기능이 아닙니다.
 
-## Users
+## 사용자
 
-| Role | Primary need |
+| 역할 | 주요 필요 |
 | --- | --- |
-| Operator | See the incident and provide observed context. |
-| Process or equipment expert | Examine evidence and approve, reject, or correct a candidate. |
-| Data analyst | Inspect tool inputs, data quality, and benchmark results. |
-| Manager | Track investigation status and decision history. |
+| 운영자 | 사건을 확인하고 현장 관찰 내용을 남김 |
+| 공정·설비 전문가 | 근거를 보고 후보를 승인·거절·수정 |
+| 데이터 분석가 | 도구 입력, 데이터 품질, benchmark 결과 확인 |
+| 관리자 | 조사 상태와 판단 이력 확인 |
 
-## Non-goals
+## 하지 않는 일
 
-- A generic upload-any-data AI platform
-- Autonomous repair, control, or maintenance instructions
-- Cross-dataset causal claims
-- Training an LLM on private manufacturing data
+- 어떤 데이터든 업로드해 분석한다는 범용 AI 플랫폼
+- 자동 수리, 자동 제어, 자동 유지보수 지시
+- 서로 다른 데이터셋을 넘나드는 인과 주장
+- 민감 제조 데이터로 LLM을 학습시키는 일

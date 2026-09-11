@@ -1,23 +1,20 @@
-# Evaluation plan
+# 평가 계획
 
-## Primary benchmark: causRCA
+## 주 benchmark: causRCA
 
-The service is evaluated on held-out causRCA fault cases. Runtime code receives only
-observations up to the chosen diagnosis cutoff. Evaluation scripts, and only those
-scripts, may read the corresponding root-cause truth.
+서비스 runtime은 선택한 진단 cutoff 이전의 관측값만 받습니다. 원인 정답은 평가 스크립트만 읽을 수 있고, 서비스 코드나 LLM에는 전달되지 않습니다.
 
-## Metrics
+## 지표
 
-- Root-cause ranking: Hit@1, Hit@3, MRR, MAP@3
-- Workflow: tool-selection success, structured-output validity, trace completeness
-- Evidence: unsupported-claim rate, citation/observation alignment, abstention quality
-- Product: time to a reviewable report, reviewer agreement, review completion rate
+- 원인 후보 순위: Hit@1, Hit@3, MRR, MAP@3
+- 워크플로우: 올바른 도구 선택률, 구조화 출력 유효성, 실행 이력 완결성
+- 근거: 근거 없는 주장 비율, 인용·관측값 일치율, 판단 보류 품질
+- 제품: 검토 가능한 보고서 작성 시간, 검토자 합의도, 검토 완료율
 
-## Required comparisons
+## 필수 비교
 
-1. Deterministic analysis only
-2. Deterministic analysis with evidence assembly
-3. Full workflow with optional LLM explanation
+1. 결정론적 분석만 사용
+2. 결정론적 분석과 근거 조립 사용
+3. 선택적 LLM 설명까지 포함한 전체 워크플로우
 
-The LLM must not change numerical scores or access evaluation labels. A comparison that
-cannot be reproduced from the supplied data and code must not appear in a presentation.
+LLM은 수치 점수를 바꾸거나 평가 라벨에 접근하면 안 됩니다. 제공한 데이터와 코드만으로 재현할 수 없는 비교 결과는 발표 자료에 넣지 않습니다.

@@ -1,17 +1,13 @@
-# ADR-0001: Use causRCA as the primary benchmark
+# ADR-0001: causRCA를 주 benchmark로 사용
 
-## Decision
+## 결정
 
-Use causRCA for the MVP's primary root-cause ranking evaluation. Keep Metal Etch as a
-separate portability adapter and semiconductor demonstration dataset.
+MVP의 핵심 원인 후보 순위 평가는 causRCA로 수행합니다. Metal Etch는 별도의 반도체 시연·이식성 어댑터로 유지합니다.
 
-## Why
+## 이유
 
-causRCA provides explicit evaluation truth suitable for ranking metrics. Metal Etch is
-valuable for its multi-source process observations, but its public fault names do not
-provide sufficiently precise variable-level truth for the headline benchmark.
+causRCA에는 순위 지표에 사용할 수 있는 명시적 평가 정답이 있습니다. Metal Etch는 다중 센서 공정 관측을 보여주는 데는 유용하지만, 공개 fault name만으로는 변수 단위의 정확한 정답을 만들기 어렵습니다.
 
-## Consequence
+## 결과
 
-The service shares one incident/evidence contract across adapters, while analytics and
-metrics remain dataset-capability-specific. No results are pooled across datasets.
+서비스는 두 어댑터에 공통 사건·근거 계약을 사용합니다. 하지만 분석 방법과 평가 지표는 각 데이터셋의 capability에 맞게 분리하며, 결과를 합산하지 않습니다.

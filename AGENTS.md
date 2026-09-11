@@ -1,42 +1,34 @@
-# Manufacturing Investigation Workspace
+# 제조 이상 조사 워크스페이스 규칙
 
-This repository builds a research MVP for **manufacturing incident investigation**.
-The product helps operators, process experts, and data analysts review the same
-observations, root-cause candidates, and human decisions. It is not an automatic
-plant-control system and must never present a candidate as a confirmed physical cause.
+이 저장소는 **제조 이상 조사**를 위한 연구용 MVP를 개발합니다. 운영자, 공정·설비 전문가, 데이터 분석가가 같은 관측값·원인 후보·사람의 판단을 검토하도록 돕습니다. 자동 설비 제어 시스템이 아니며, 어떤 후보도 확정된 물리적 원인처럼 제시하면 안 됩니다.
 
-## Source of truth
+## 단일 기준 문서
 
-- Product scope: `docs/PRODUCT.md`
-- Architecture and boundaries: `docs/ARCHITECTURE.md`
-- Data contracts and leakage rules: `docs/DATA_CONTRACT.md`
-- Metrics and benchmark rules: `docs/EVALUATION.md`
-- Design decisions: `docs/decisions/`
+- 제품 범위: `docs/PRODUCT.md`
+- 시스템 경계와 흐름: `docs/ARCHITECTURE.md`
+- 데이터 계약과 누출 방지: `docs/DATA_CONTRACT.md`
+- 평가 지표와 benchmark 규칙: `docs/EVALUATION.md`
+- 중요한 결정 기록: `docs/decisions/`
 
-Read the relevant document before changing a boundary it governs.
+해당 경계를 변경하기 전 관련 문서를 먼저 읽습니다.
 
-## Non-negotiable data rules
+## 반드시 지킬 데이터 규칙
 
-1. Do not join records from different source datasets as if they came from one plant.
-2. `data/runtime/` may contain only information observable at investigation time.
-3. Labels, manipulated variables, diagnosis timestamps, and benchmark answers belong
-   only in `data/evaluation/`; backend runtime code and LLM prompts must not read them.
-4. A model or LLM may summarize tool outputs, but numerical anomaly or ranking results
-   must come from a deterministic analysis tool with recorded inputs and version.
-5. Every user-facing claim needs an observation or cited source. If evidence is missing,
-   return an inconclusive result.
+1. 서로 다른 데이터셋의 레코드를 같은 공장에서 나온 것처럼 join하지 않습니다.
+2. `data/runtime/`에는 조사 시점에 실제로 관측 가능한 정보만 넣습니다.
+3. 라벨, 조작 변수, 진단 시점, benchmark 정답은 `data/evaluation/`에만 둡니다. 서비스 런타임 코드와 LLM 프롬프트는 이 영역을 읽으면 안 됩니다.
+4. LLM은 도구의 결과를 정리할 수 있지만, 수치 기반 이상 점수와 후보 순위는 입력·버전이 기록된 결정론적 분석 도구가 계산합니다.
+5. 사용자에게 표시되는 모든 주장은 관측값 또는 인용한 출처가 있어야 합니다. 근거가 부족하면 판단 보류를 반환합니다.
 
-## Working agreement
+## 협업 원칙
 
-- Keep adapters dataset-specific and map them to the shared incident contract.
-- Keep domain, data, analytics, workflow, and API layers separate.
-- Add or update tests for every behavior change.
-- Do not commit raw data, generated arrays, secrets, local databases, or caches.
-- Do not use AI-generated domain text as an authoritative RAG source.
-- Record a material scope or data decision as an ADR.
+- 데이터셋별 로직은 어댑터에 두고, 공통 사건 계약으로 변환합니다.
+- domain, data, analytics, workflow, API 계층을 섞지 않습니다.
+- 동작을 바꾸면 테스트를 추가하거나 갱신합니다.
+- 원본 데이터, 생성 배열, 비밀키, 캐시, 로컬 DB는 커밋하지 않습니다.
+- AI가 생성한 도메인 문서를 권위 있는 RAG 근거로 사용하지 않습니다.
+- 제품 범위나 데이터 처리에 영향을 주는 결정은 ADR로 남깁니다.
 
-## Definition of done
+## 완료 기준
 
-Run the relevant tests, formatting/lint checks, and document any known evaluation gap.
-For changes that touch runtime data, add a leakage test. For workflow changes, verify
-the trace identifies each tool call and that no physical action is proposed.
+변경 범위에 맞는 테스트와 정적 검사를 실행하고, 남은 평가 공백을 문서화합니다. runtime 데이터를 변경하면 label 누출 테스트를 추가합니다. 워크플로우 변경 시에는 실행 이력에 도구 호출이 남는지, 물리적 조치를 제안하지 않는지 확인합니다.

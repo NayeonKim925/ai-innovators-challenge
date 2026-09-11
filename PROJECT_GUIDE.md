@@ -1,40 +1,32 @@
-# Development guide
+# 개발 가이드
 
-## One workflow, two dataset roles
+## 하나의 워크플로우, 두 가지 데이터 역할
 
-The MVP is a collaborative **manufacturing anomaly investigation** service, not a
-collection of unrelated ML demos.
+MVP는 관련 없는 ML 데모를 모아놓은 서비스가 아니라, **제조 이상을 협업으로 조사하는 서비스**입니다.
 
-| Dataset | Role | Claim we can make |
+| 데이터셋 | 역할 | 검증 가능한 주장 |
 | --- | --- | --- |
-| causRCA | Primary benchmark | Measurable root-cause ranking on held-out HIL incidents |
-| Metal Etch | Portability adapter | Same incident/evidence workflow can represent multi-source semiconductor signals |
-| PHM / SECOM / WM-811K | Deferred | Future adapter candidates only |
+| causRCA | 핵심 benchmark | 분리된 HIL 사건에서 원인 후보 순위 성능 측정 |
+| Metal Etch | 이식성 어댑터 | 다중 센서 반도체 신호를 동일 사건·근거 흐름으로 표현 |
+| PHM / SECOM / WM-811K | 보류 | 후속 어댑터 후보 |
 
-Never pool these datasets or imply that their entities belong to the same factory.
+데이터셋을 합치거나, 서로 다른 출처의 entity가 같은 공장에 속한다고 암시하지 않습니다.
 
-## Implementation order
+## 구현 순서
 
-1. Prepare causRCA into isolated `runtime` and `evaluation` zones.
-2. Integrate the official deterministic RCA tool and establish reproducible metrics.
-3. Add evidence assembly and human-review persistence.
-4. Implement the investigation UI around incident, evidence, candidate, and review.
-5. Migrate Metal Etch preprocessing into a dedicated adapter and demonstrate portability.
-6. Add optional LLM explanation only after deterministic analysis and evidence checks pass.
+1. causRCA를 `runtime`과 `evaluation` 영역으로 분리해 준비합니다.
+2. 공식 결정론적 RCA 도구를 연결하고 재현 가능한 성능 지표를 만듭니다.
+3. 근거 조립과 전문가 검토 저장을 추가합니다.
+4. 사건·근거·후보·승인 흐름을 중심으로 조사 UI를 구현합니다.
+5. Metal Etch 전처리를 전용 어댑터로 이전해 이식성을 시연합니다.
+6. 결정론적 분석과 근거 검증이 통과한 후에만 선택적으로 LLM 설명을 추가합니다.
 
-## Dataset adapter contract
+## 데이터셋 어댑터 계약
 
-Every adapter emits a source-specific record first, then maps it into the shared
-runtime incident contract. Capabilities are declared explicitly: for example, a dataset
-may support time series and multi-source evidence but not a valid causal-graph metric.
+각 어댑터는 출처별 레코드를 먼저 만들고, 이후 공통 runtime 사건 계약으로 변환합니다. 데이터셋이 지원하는 기능은 명시적으로 선언합니다. 예를 들어 어떤 데이터는 시계열·다중 센서 근거를 지원하지만, 검증 가능한 causal graph 평가는 지원하지 않을 수 있습니다.
 
-Evaluation labels never enter the runtime incident model. See
-[data contract](docs/DATA_CONTRACT.md) for prohibited fields and
-[architecture](docs/ARCHITECTURE.md) for package boundaries.
+평가 라벨은 runtime 사건 모델에 들어가지 않습니다. 금지 필드는 [데이터 계약](docs/DATA_CONTRACT.md), 패키지 경계는 [아키텍처](docs/ARCHITECTURE.md)를 참고합니다.
 
-## Legacy Metal Etch work
+## 기존 Metal Etch 작업
 
-The root loaders, `preprocess.py`, and `processed/` artifacts were early data
-exploration. They remain useful for understanding the public LAM 9600 data, but are not
-the service API. Before reuse, migrate them to `backend/app/data/metal_etch_adapter.py`,
-split observable data from labels, and validate the preprocessing assumptions.
+루트 로더, `preprocess.py`, `processed/` 산출물은 초기 데이터 탐색 작업입니다. 공정 데이터를 이해하는 데는 유용하지만 서비스 API가 아닙니다. 재사용 전 `backend/app/data/metal_etch_adapter.py`로 옮기고, 관측 데이터와 라벨을 분리하며, 전처리 가정을 검증해야 합니다.
