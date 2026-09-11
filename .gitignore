@@ -5,6 +5,8 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .venv/
+.venv*/
+*.egg-info/
 
 # JavaScript
 node_modules/
@@ -25,6 +27,9 @@ data/evaluation/*
 !data/evaluation/.gitkeep
 data/processed/*
 !data/processed/.gitkeep
+
+# Pinned third-party research source. Recreated by scripts/bootstrap_causrca.py.
+third_party/causRCA/
 
 # Legacy Metal Etch inputs/outputs. Download or regenerate them locally.
 *.mat

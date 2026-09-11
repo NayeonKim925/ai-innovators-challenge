@@ -16,6 +16,16 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["httpx>=0.28,<1", "pytest>=8.3,<9", "ruff>=0.9,<1"]
+# Required only for the pinned upstream CausTR benchmark, never for the API fallback.
+causrca = [
+  "networkx>=3.2,<4",
+  "numpy>=1.26,<3",
+  "pandas>=2.2,<3",
+  "scikit-learn>=1.4,<2",
+  "scikit-network>=0.33,<1",
+  "torch>=2.2,<3",
+  "tqdm>=4.66,<5",
+]
 
 [tool.setuptools.packages.find]
 where = ["backend"]

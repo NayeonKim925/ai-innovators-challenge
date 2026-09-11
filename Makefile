@@ -1,4 +1,4 @@
-.PHONY: install api test lint
+.PHONY: install api test lint bootstrap-causrca prepare-causrca validate-data benchmark-causrca
 
 install:
 	python -m pip install -e '.[dev]'
@@ -11,3 +11,15 @@ test:
 
 lint:
 	python -m ruff check .
+
+bootstrap-causrca:
+	python scripts/bootstrap_causrca.py
+
+prepare-causrca:
+	python scripts/prepare_causrca.py --source data/raw/causrca
+
+validate-data:
+	python scripts/validate_data.py
+
+benchmark-causrca:
+	python -m evals.run_causrca_benchmark --method time_recency
