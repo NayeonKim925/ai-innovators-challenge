@@ -37,13 +37,16 @@ calibration 108개 중 104개는 machine·oes·rfm 전부 존재, 4개는 둘 �
 하나에만 존재(OES 누락 2개, RFM 누락 2개는 서로 다른 웨이퍼). test
 21개 중 20개는 셋 다 존재, 1개(2916번)는 MACHINE에만 존재.
 
-★ 아직 확인 안 된 부분 (남은 검증 항목) ★
-- MACHINE/OES/RFM 세 파일의 시간축(행 개수)이 같은 웨이퍼에 대해
-  서로 맞는지 확인 필요 (OES 파일 용량이 훨씬 커서 샘플링 방식이 다를 수
-  있음). 다르면 세 그룹을 같은 entity_id 아래 별도 feature 그룹으로만
-  묶고 억지로 행 단위로 합치지 않는다.
+★ 실측으로 해결된 이전 의문 ★
+"세 파일의 시간축이 맞는지"는 미해결로 남겨뒀었는데, 조사 결과 각
+웨이퍼의 마지막 행이 다음 웨이퍼의 첫 행과 완전히 동일하다는 걸
+확인했다 (원본 실험을 연속으로 로깅한 뒤 웨이퍼 단위로 자르면서 경계를
+양쪽에 포함시킨 것으로 보임 -- 128쌍 중 116쌍에서 확인, 나머지 12쌍은
+정확히 calibration/test 배열 전환 지점이라 오히려 이 설명과 일치함).
+그래서 _drop_boundary_duplicate_row()로 각 웨이퍼의 마지막 행을 버린다.
 """
 import re
+import numpy as np
 import scipy.io
 
 
@@ -99,6 +102,21 @@ def inspect_metal_etch(path: str):
     return inner
 
 
+def _drop_boundary_duplicate_row(matrix: np.ndarray) -> np.ndarray:
+    """실측으로 확인된 사실: 이 데이터셋의 원본 .mat 파일은 각 웨이퍼의
+    마지막 행이 다음 웨이퍼의 첫 행과 완전히 동일하다 (전체 실험을
+    연속으로 로깅한 뒤 웨이퍼 단위로 자르면서 경계 지점을 양쪽에 한 번씩
+    포함시킨 것으로 보임 -- 로더나 전처리 버그가 아니라 원본 데이터
+    자체의 특성, 128쌍 중 116쌍에서 확인됨). 이 마지막 행은 이 웨이퍼
+    자신의 진짜 마지막 측정치가 아니라 다음 웨이퍼 것이므로, 통계 계산
+    전에 제거한다. 배열의 진짜 마지막 웨이퍼도 동일하게 한 행을 버리는데
+    (그 경우 정말 자기 마지막 행일 수 있음), 전체 100여 행 중 1행 손실은
+    무시할 만한 수준이라 조건 분기 없이 일괄 적용한다."""
+    if matrix.shape[0] <= 1:
+        return matrix
+    return matrix[:-1]
+
+
 def load_metal_etch_file(path: str, variable_group: str) -> list[dict]:
     """
     variable_group: "machine" | "oes" | "rfm" -- 어느 파일을 로드하는지 태깅용
@@ -121,6 +139,7 @@ def load_metal_etch_file(path: str, variable_group: str) -> list[dict]:
 
     records = []
     for name, matrix in zip(calib_names, calib_wafers):
+        matrix = _drop_boundary_duplicate_row(np.asarray(matrix, dtype=float))
         records.append({
             "source_dataset": "metal_etch",
             "modality": "tabular_timeseries",
@@ -140,6 +159,7 @@ def load_metal_etch_file(path: str, variable_group: str) -> list[dict]:
         })
 
     for name, matrix, fault in zip(test_names, test_wafers, fault_names):
+        matrix = _drop_boundary_duplicate_row(np.asarray(matrix, dtype=float))
         records.append({
             "source_dataset": "metal_etch",
             "modality": "tabular_timeseries",
