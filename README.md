@@ -24,6 +24,8 @@ MVP는 여러 제조 AI 기능을 나열하지 않고, **제조 이상을 협업
 
 새 데이터셋이나 모델을 추가하기 전에는 [제품 범위](docs/PRODUCT.md), [데이터 계약](docs/DATA_CONTRACT.md), [평가 계획](docs/EVALUATION.md)을 읽어야 합니다.
 
+팀 분업, 구현 순서, 파일별 완료 기준은 [구현 계획서](docs/IMPLEMENTATION_PLAN.md)를 기준으로 관리합니다.
+
 ## 로컬 실행
 
 Python 3.10 이상이 필요합니다.
