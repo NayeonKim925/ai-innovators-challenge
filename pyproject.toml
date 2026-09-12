@@ -12,9 +12,6 @@ dependencies = [
   "langgraph>=0.4,<1",
   "pydantic>=2.10,<3",
   "uvicorn[standard]>=0.34,<1",
-  "numpy>=2.0,<3",
-  "scipy>=1.14,<2",
-  "scikit-learn>=1.5,<2",
 ]
 
 [project.optional-dependencies]
@@ -28,6 +25,15 @@ causrca = [
   "scikit-network>=0.33,<1",
   "torch>=2.2,<3",
   "tqdm>=4.66,<5",
+]
+# Required only for the Metal Etch PCA baseline (analytics/metal_etch_pca.py and
+# data/metal_etch_adapter.py). rank_with_pca_contribution() checks
+# _SKLEARN_AVAILABLE and falls back to a declared-baseline warning when these
+# are not installed, so they are never required for the API or the causRCA path.
+metal-etch = [
+  "numpy>=2.0,<3",
+  "scipy>=1.14,<2",
+  "scikit-learn>=1.5,<2",
 ]
 
 [tool.setuptools.packages.find]

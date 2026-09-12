@@ -38,12 +38,26 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-import numpy as np
-import scipy.io
 from pydantic import BaseModel, ConfigDict
 
 from ..analytics.metal_etch_variables import EXCLUDED_SIGNALS
 from ..domain import Capability, DatasetName, Incident, Observation, TimeRange
+
+# ★ 왜 조건부 임포트인가 (metal_etch_pca.py와 동일 패턴) ★
+# numpy/scipy는 원본 .mat 파일을 파싱하는 "데이터 준비" 함수들
+# (_drop_boundary_duplicate_row, _matrix_to_observations, _iter_wafer_records,
+# build_metal_etch_dataset)에만 필요하다. 이 함수들은 scripts/prepare_metal_etch.py
+# 에서만 호출되지, API 요청 경로에서는 절대 호출되지 않는다. 반면
+# load_normal_baseline()은 이미 준비된 JSON을 읽어서 Pydantic으로 검증만 하고
+# np./scipy. 참조가 전혀 없어서, numpy/scipy가 없어도 그대로 동작해야 한다
+# (그래서 이 함수는 아래 _NUMPY_AVAILABLE 체크를 두지 않는다).
+try:
+    import numpy as np
+    import scipy.io
+
+    _NUMPY_AVAILABLE = True
+except ImportError:
+    _NUMPY_AVAILABLE = False
 
 # inspect_failing_cases.py로 직접 눈으로 대조해서 확인된, 라벨과 실측 신호가
 # 어긋난 웨이퍼 (flag_unreliable_labels.py와 동일한 목록). 추측으로 다른
@@ -201,7 +215,17 @@ def build_metal_etch_dataset(
     `entity_ids`를 주면 그 웨이퍼들만 포함한다 (데모·테스트에서 전체 129장 대신
     일부만 다루고 싶을 때 사용). 원본 파일은 그래도 전체를 읽는다 -- scipy가
     구조상 부분 로딩을 지원하지 않는다.
-    """
+
+    이 함수는 `scripts/prepare_metal_etch.py`(오프라인 데이터 준비 CLI)에서만
+    호출되고 API 요청 경로에는 절대 들어오지 않으므로, numpy/scipy가 없으면
+    (`rank_with_pca_contribution()`처럼 조용히 폴백하지 않고) 즉시
+    `ImportError`를 던진다 -- 준비 스크립트를 돌리는 사람이 원인을 바로 알 수
+    있게 하는 게 API 폴백 경고보다 더 적절하다."""
+    if not _NUMPY_AVAILABLE:
+        raise ImportError(
+            "Metal Etch data preparation requires numpy and scipy; "
+            "install with `pip install -e '.[metal-etch]'`."
+        )
     records, variable_names = _iter_wafer_records(machine_path)
     if entity_ids is not None:
         records = [r for r in records if r.entity_id in entity_ids]

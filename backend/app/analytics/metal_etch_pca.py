@@ -36,15 +36,35 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
-from sklearn.decomposition import PCA
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler
-
 from ..data.metal_etch_adapter import load_normal_baseline
 from ..data.runtime_repository import runtime_root
 from ..domain import Candidate, Evidence, Incident, Observation
 from .metal_etch_variables import CANONICAL_STEPS, EXCLUDED_SIGNALS, FEATURE_STATS, MACHINE_SIGNALS
+
+# ★ 왜 조건부 임포트인가 (지난 리뷰 반영) ★
+# numpy/scikit-learn은 이 데이터셋 전용 분석 도구에만 필요하고, causRCA
+# 경로나 API 기본 동작에는 필요 없다. causrca.py가 networkx/torch를 함수
+# 내부에서 매번 시도하는 것과 달리, 여기서는 모듈이 처음 임포트될 때 딱 한
+# 번만 시도하고 성공 여부를 `_SKLEARN_AVAILABLE` 플래그로 저장한다 --
+# `_get_baseline_model()`이 매 요청마다 불릴 수 있어서 매번 새로 임포트를
+# 시도하는 건 불필요한 오버헤드다. 이 덕분에 numpy/scikit-learn이 설치 안
+# 된 환경에서도 `investigation.py` -> `backend.app.main`의 import 체인이
+# 죽지 않는다 (import 시점에는 무거운 패키지가 강제되지 않고, 실제로 이
+# 함수가 *호출*될 때만 플래그를 확인해서 안전하게 폴백한다). 아래
+# `np`/`PCA`/`SimpleImputer`/`StandardScaler`는 `from __future__ import
+# annotations` 덕분에 타입 힌트에서는 문자열로만 지연 평가되므로,
+# import에 실패해도 이 파일의 나머지 타입 힌트(`np.ndarray` 등)는 깨지지
+# 않는다 -- 그 이름들이 실제로 평가되는 시점은 이 함수들이 호출될 때뿐이고,
+# 그 전에 `_SKLEARN_AVAILABLE` 체크로 항상 막아준다.
+try:
+    import numpy as np
+    from sklearn.decomposition import PCA
+    from sklearn.impute import SimpleImputer
+    from sklearn.preprocessing import StandardScaler
+
+    _SKLEARN_AVAILABLE = True
+except ImportError:
+    _SKLEARN_AVAILABLE = False
 
 # machine 21변수 중 fault_names의 계열 키워드(TCP/RF/Cl2/BCl3/Pr/He)와 실제
 # 대응되는 변수를 도메인 판단으로 확정한 표. 부분 문자열 매칭(예: "RF"가
@@ -168,6 +188,15 @@ def rank_with_pca_contribution(
     `diagnosis_time` 이전 관측값만 사용한다. 정상 기준선이 준비돼 있지 않으면
     (`scripts/prepare_metal_etch.py`를 안 돌렸으면) 빈 결과와 경고를 반환한다 --
     causRCA 어댑터의 폴백 패턴과 동일하다."""
+    if not _SKLEARN_AVAILABLE:
+        return (
+            [],
+            [],
+            [
+                "Metal Etch PCA baseline dependencies (numpy/scikit-learn) are unavailable; "
+                "using the declared baseline instead."
+            ],
+        )
     model = _get_baseline_model()
     if model is None:
         return (
