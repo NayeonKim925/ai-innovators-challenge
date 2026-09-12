@@ -8,6 +8,7 @@ from typing import TypedDict
 from langgraph.graph import END, START, StateGraph
 
 from ..analytics.causrca import rank_with_caus_tr
+from ..analytics.metal_etch_pca import rank_with_pca_contribution
 from ..analytics.recency_baseline import rank_active_alarms
 from ..domain import DatasetName, Incident, InvestigationResult, TraceEvent
 
@@ -50,6 +51,11 @@ def run_deterministic_analysis(state: InvestigationState) -> dict:
         warnings.extend(tool_warnings)
         if candidates:
             tool = "causrca_causal_prio_time_recency"
+    elif incident.source_dataset is DatasetName.METAL_ETCH:
+        candidates, evidence, tool_warnings = rank_with_pca_contribution(incident, state["diagnosis_time"])
+        warnings.extend(tool_warnings)
+        if candidates:
+            tool = "metal_etch_pca_contribution"
     if not candidates:
         candidates, evidence = rank_active_alarms(incident, state["diagnosis_time"])
     if not candidates:
