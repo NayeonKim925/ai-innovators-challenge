@@ -228,17 +228,22 @@ GET  /api/investigations/{investigation_id}/report
 
 ### M4 · LLM 품질 게이트 통과
 
-- [ ] LLM은 도구 결과와 승인된 문서 근거만 입력으로 사용한다.
+> ADR-0002에 따라 evidence_check 선행, 결정론적 모드 기본 유지, 수치 불변을 완화 조치로 두고 M5보다 먼저 조건부로 시작할 수 있다. 아래 기준은 그대로 유지한다.
+
+- [ ] `evidence_check` 노드가 LLM 노드보다 먼저 실행되고, 근거 없는 후보는 `inconclusive`로 처리된다.
+- [ ] LLM은 도구 결과와 승인된 문서 근거만 입력으로 사용하고, 후보 순위·수치를 변경하지 않는다.
 - [ ] 근거 없는 문장은 제거 또는 판단 보류된다.
 - [ ] LLM 사용 여부·모델·token·latency가 trace에 남는다.
-- [ ] LLM 없는 결과와 있는 결과를 구분해 발표한다.
+- [ ] `include_llm_narrative` 기본값이 `False`이며, LLM 없는 결과와 있는 결과를 API·발표에서 구분한다.
 
 ### M5 · 이식성·발표 완료
 
-- [ ] Metal Etch 어댑터가 동일 사건 계약을 생성한다.
-- [ ] causRCA 성능과 Metal Etch 시연 결과를 섞지 않는다.
+- [ ] Metal Etch 어댑터(`backend/app/data/metal_etch_adapter.py`)가 동일 사건 계약을 생성한다.
+- [ ] `backend/app/analytics/metal_etch_pca.py`가 causRCA 분기와 대칭적인 시그니처로 `investigation.py`에 연결된다.
+- [ ] causRCA 성능과 Metal Etch 시연 결과를 섞지 않는다 (ADR-0001 유지).
 - [ ] 데모는 데이터 준비 실패 없이 재현된다.
 - [ ] 문제 정의, benchmark, 실패 사례, 한계가 발표 자료에 포함된다.
+- [ ] 루트 스크립트(`loaders/`, `track_b_engine.py`, `agent.py` 등)에서 이식된 로직은 `backend/app` 안에서 동일하게 재현되고, 루트 스크립트는 참고 자료로만 남는다.
 
 ## 7. 공동 작업 규칙
 
