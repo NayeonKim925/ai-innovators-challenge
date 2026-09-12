@@ -1,0 +1,23 @@
+{
+  "dataset": {
+    "name": "causRCA",
+    "version": "1.0.0",
+    "doi": "10.5281/zenodo.15876410",
+    "license": "Apache-2.0",
+    "archive_name": "dataset_causRCA-v1.0.0.zip",
+    "url": "https://zenodo.org/records/15876410/files/dataset_causRCA.zip?download=1",
+    "publisher_md5": "5d57a40184697a4c2bf9eef7c385ebb5"
+  },
+  "upstream": {
+    "repository": "https://github.com/causalgraph/causRCA",
+    "commit": "d932ab7ad91abe889b67e4d87186d0fccec7fbc1",
+    "license": "Apache-2.0",
+    "archive_name": "causRCA-d932ab7ad91abe889b67e4d87186d0fccec7fbc1.zip",
+    "url": "https://codeload.github.com/causalgraph/causRCA/zip/d932ab7ad91abe889b67e4d87186d0fccec7fbc1"
+  },
+  "expected": {
+    "hil_fault_recordings": 100,
+    "normal_recordings": 170
+  },
+  "usage_note": "HIL fault scenarios are public simulated experiments. They are used for offline benchmark evaluation, not presented as real factory incidents."
+}
