@@ -35,3 +35,6 @@ third_party/causRCA/
 *.mat
 processed/
 loaders/__pycache__/
+
+# Lambda deployment build artifacts (recreated by deploy scripts).
+*.zip

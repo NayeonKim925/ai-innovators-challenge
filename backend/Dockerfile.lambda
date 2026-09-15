@@ -1,0 +1,29 @@
+# AWS Lambda container image for the FastAPI investigation API (task #17).
+# Build context MUST be the repository root:
+#   docker build -f backend/Dockerfile.lambda -t mfg-investigation-api .
+FROM public.ecr.aws/lambda/python:3.12
+
+WORKDIR ${LAMBDA_TASK_ROOT}
+
+COPY backend/app ./app
+COPY backend/lambda_handler.py ./lambda_handler.py
+
+# Deliberately excludes the causrca/metal-etch extras (torch, scikit-network,
+# scikit-learn): those are only needed by the *optional* CausTR/PCA adapters,
+# which already fall back to a transparent warning when unavailable (see
+# analytics/causrca.py, analytics/metal_etch_pca.py). Keeping the image lean
+# keeps Lambda cold starts fast; the deterministic time-recency baseline and
+# the LLM narrative path both work without them.
+RUN pip install --no-cache-dir \
+    "fastapi>=0.115,<1" \
+    "pydantic>=2.10,<3" \
+    "langgraph>=0.4,<1" \
+    "mangum>=0.19,<1" \
+    "anthropic>=0.40"
+
+# Prepared runtime data is baked into the image read-only, since Lambda's
+# writable /tmp is ephemeral and this is a read-only investigation API.
+COPY data/runtime ./data/runtime
+ENV RUNTIME_DATA_DIR=/var/task/data/runtime
+
+CMD ["lambda_handler.handler"]

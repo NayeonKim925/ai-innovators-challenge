@@ -39,6 +39,17 @@ make api
 
 API는 `http://127.0.0.1:8000`, OpenAPI 문서는 `/docs`에서 확인합니다. 준비된 runtime 데이터가 없으면 `/api/datasets`는 `unprepared`를 반환하며, 서비스가 임의의 데모 사건을 만들지 않습니다.
 
+### 조사·검토 데모 UI (Streamlit)
+
+API가 실행 중인 상태에서 별도 터미널에서 실행합니다.
+
+```sh
+python -m pip install -e '.[frontend]'
+make frontend
+```
+
+기본으로 `http://localhost:8000`의 백엔드에 연결합니다. 다른 포트/호스트를 쓰면 `BACKEND_URL` 환경변수로 지정합니다 (예: `$env:BACKEND_URL="http://127.0.0.1:8010"`). 이 앱은 `backend.app`을 import하지 않고 순수 HTTP로만 통신하므로, 배포 시 백엔드와 독립적으로 옮길 수 있습니다. 사건 선택 → cutoff 지정 → 조사 실행 → 후보/근거 확인 → 전문가 승인·거절 기록 → 보고서 확인까지 한 화면에서 이어집니다.
+
 ## 저장소 구조
 
 ```text

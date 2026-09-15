@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from app.analytics import metal_etch_pca
 from app.data.metal_etch_adapter import build_metal_etch_dataset
-from app.domain import Capability, DatasetName, Incident, Observation, TimeRange
+from app.domain import Candidate, Capability, DatasetName, Incident, Observation, TimeRange
 from app.workflows.investigation import investigate
 
 
@@ -32,6 +32,7 @@ def test_workflow_only_ranks_alarms_active_at_cutoff() -> None:
     assert [event.tool for event in result.trace] == [
         "validate_request",
         "active_alarm_recency_baseline",
+        "evidence_check",
         "prepare_human_review",
     ]
 
@@ -41,6 +42,34 @@ def test_workflow_abstains_without_active_alarm() -> None:
 
     assert result.candidates == []
     assert any("abstains" in warning for warning in result.warnings)
+
+
+def test_evidence_check_demotes_candidates_with_unresolvable_evidence() -> None:
+    """ADR-0002 / IMPLEMENTATION_PLAN.md M4: evidence_check must actually demote
+    a candidate whose evidence_ids do not resolve against the returned evidence
+    list, rather than just documenting the rule in prose."""
+    from app.domain import TraceEvent
+    from app.workflows.investigation import evidence_check
+
+    state = {
+        "candidates": [
+            Candidate(
+                rank=1,
+                signal="P101",
+                reason="looks suspicious",
+                evidence_ids=["E_missing"],
+            )
+        ],
+        "evidence": [],  # no Evidence object exists for "E_missing"
+        "warnings": [],
+        "trace": [TraceEvent(step=1, tool="validate_request", detail="ok")],
+    }
+
+    result = evidence_check(state)
+
+    assert result["candidates"][0].status == "inconclusive"
+    assert any("demoted" in warning for warning in result["warnings"])
+    assert result["trace"][-1].tool == "evidence_check"
 
 
 @pytest.fixture(autouse=True)

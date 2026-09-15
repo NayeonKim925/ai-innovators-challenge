@@ -10,7 +10,7 @@ from langgraph.graph import END, START, StateGraph
 from ..analytics.causrca import rank_with_caus_tr
 from ..analytics.metal_etch_pca import rank_with_pca_contribution
 from ..analytics.recency_baseline import rank_active_alarms
-from ..domain import DatasetName, Incident, InvestigationResult, TraceEvent
+from ..domain import Candidate, DatasetName, Incident, InvestigationResult, TraceEvent
 
 
 class InvestigationState(TypedDict, total=False):
@@ -75,12 +75,67 @@ def run_deterministic_analysis(state: InvestigationState) -> dict:
     }
 
 
+def evidence_check(state: InvestigationState) -> dict:
+    """ADR-0002 / IMPLEMENTATION_PLAN.md M4 gate: run *before* any LLM step.
+
+    `Candidate.evidence_ids` already enforces `min_length=1` at the schema level,
+    so every candidate produced by an analytics tool already references at least
+    one `Evidence` object. This node adds an independent, explicit check: it
+    verifies each referenced evidence id actually exists in the evidence list
+    returned by the same tool call. If a candidate's evidence id is missing
+    (a tool bug, not a schema violation -- an id that "looks" present but does
+    not resolve), the candidate is demoted to `status="inconclusive"` and never
+    presented as an actionable root-cause candidate. This is the concrete
+    enforcement of AGENTS.md's "if evidence is insufficient, return an
+    abstention" principle, and it always runs whether or not an LLM step follows.
+    """
+    evidence_ids = {item.id for item in state["evidence"]}
+    checked: list[Candidate] = []
+    warnings = list(state["warnings"])
+    demoted = 0
+    for candidate in state["candidates"]:
+        if candidate.evidence_ids and all(eid in evidence_ids for eid in candidate.evidence_ids):
+            checked.append(candidate)
+        else:
+            demoted += 1
+            checked.append(
+                Candidate(
+                    rank=candidate.rank,
+                    signal=candidate.signal,
+                    reason="Demoted to inconclusive: referenced evidence could not be verified.",
+                    evidence_ids=candidate.evidence_ids or ["E_unverified"],
+                    status="inconclusive",
+                )
+            )
+    if demoted:
+        warnings.append(
+            f"evidence_check demoted {demoted} candidate(s) to inconclusive "
+            "for missing or unverifiable evidence."
+        )
+    return {
+        "candidates": checked,
+        "warnings": warnings,
+        "trace": state["trace"]
+        + [
+            TraceEvent(
+                step=3,
+                tool="evidence_check",
+                detail=(
+                    f"Verified {len(checked) - demoted}/{len(checked)} candidates have "
+                    "resolvable evidence; unverifiable candidates were demoted to "
+                    "inconclusive before any LLM step."
+                ),
+            )
+        ],
+    }
+
+
 def assemble_review(state: InvestigationState) -> dict:
     return {
         "trace": state["trace"]
         + [
             TraceEvent(
-                step=3,
+                step=4,
                 tool="prepare_human_review",
                 detail="Prepared evidence-linked candidates for expert review; no repair instruction or physical action was generated.",
             )
@@ -91,10 +146,12 @@ def assemble_review(state: InvestigationState) -> dict:
 _builder = StateGraph(InvestigationState)
 _builder.add_node("validate_request", validate_request)
 _builder.add_node("run_deterministic_analysis", run_deterministic_analysis)
+_builder.add_node("evidence_check", evidence_check)
 _builder.add_node("assemble_review", assemble_review)
 _builder.add_edge(START, "validate_request")
 _builder.add_edge("validate_request", "run_deterministic_analysis")
-_builder.add_edge("run_deterministic_analysis", "assemble_review")
+_builder.add_edge("run_deterministic_analysis", "evidence_check")
+_builder.add_edge("evidence_check", "assemble_review")
 _builder.add_edge("assemble_review", END)
 _graph = _builder.compile()
 

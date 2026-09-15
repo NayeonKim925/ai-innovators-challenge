@@ -35,6 +35,19 @@ metal-etch = [
   "scipy>=1.14,<2",
   "scikit-learn>=1.5,<2",
 ]
+# Required only to run the demo UI (frontend/app.py). It talks to the FastAPI
+# backend over HTTP and never imports backend.app directly, so it is never
+# required for the API itself.
+frontend = [
+  "streamlit>=1.38,<2",
+  "requests>=2.32,<3",
+]
+# Required only for the AWS Lambda container deployment (backend/Dockerfile.lambda).
+# Mangum adapts the same FastAPI `app` object to the Lambda/API Gateway proxy
+# event -- create_app()/main.py are never modified for this deployment path.
+deploy = [
+  "mangum>=0.19,<1",
+]
 
 [tool.setuptools.packages.find]
 where = ["backend"]

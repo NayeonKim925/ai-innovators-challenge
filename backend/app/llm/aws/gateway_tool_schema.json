@@ -1,0 +1,34 @@
+[
+  {
+    "name": "get_root_cause_ranking",
+    "description": "Repackages the top-k root-cause candidates from an already-computed investigation_result (produced by backend/app/workflows/investigation.py). Never recomputes candidates or scores.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "investigation_result": {
+          "type": "object",
+          "description": "The InvestigationResult JSON produced by POST /api/incidents/{id}/investigations."
+        },
+        "top_k": {
+          "type": "integer",
+          "description": "Maximum number of candidates to return (default 3)."
+        }
+      },
+      "required": ["investigation_result"]
+    }
+  },
+  {
+    "name": "get_fault_reference",
+    "description": "Returns AI-curated general background (role, common causes, symptoms) for a signal's subsystem (e.g. 'RF Load', 'TCP Top Pwr'). Not a verified equipment manual; always includes a disclaimer. Returns found=false for unknown signals rather than fabricating an answer.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "variable_name": {
+          "type": "string",
+          "description": "A signal name returned by get_root_cause_ranking's candidates[].signal field."
+        }
+      },
+      "required": ["variable_name"]
+    }
+  }
+]

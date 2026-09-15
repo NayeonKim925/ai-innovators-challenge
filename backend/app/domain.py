@@ -80,6 +80,11 @@ class TraceEvent(BaseModel):
     step: int = Field(ge=1)
     tool: str
     detail: str
+    # Additive fields (ADR-0002): populated when a step involves an LLM call.
+    # Deterministic-only steps leave these as None -- absence of a number is
+    # itself meaningful ("no LLM was used here"), not a missing measurement.
+    latency_ms: float | None = Field(default=None, ge=0)
+    token_usage: int | None = Field(default=None, ge=0)
 
 
 class InvestigationRequest(BaseModel):
@@ -87,6 +92,9 @@ class InvestigationRequest(BaseModel):
 
     diagnosis_time: float = Field(ge=0)
     question: str = Field(default="", max_length=2000)
+    # Default False (ADR-0002): the deterministic workflow must fully function
+    # with no LLM configured. Callers opt in explicitly per request.
+    include_llm_narrative: bool = False
 
 
 class InvestigationResult(BaseModel):
@@ -95,9 +103,47 @@ class InvestigationResult(BaseModel):
     incident_id: str
     dataset: DatasetName
     diagnosis_time: float
-    mode: Literal["deterministic"] = "deterministic"
+    # "deterministic_with_llm_narrative" is only used when include_llm_narrative
+    # was requested AND the narrative was actually generated (ADR-0002). If the
+    # LLM call fails or is unavailable, mode stays "deterministic" and
+    # llm_narrative stays None -- the API never silently claims LLM involvement
+    # that did not happen.
+    mode: Literal["deterministic", "deterministic_with_llm_narrative"] = "deterministic"
     candidates: list[Candidate]
     evidence: list[Evidence]
     trace: list[TraceEvent]
     warnings: list[str]
     next_action: str
+    llm_narrative: str | None = None
+
+
+class ReviewDecision(BaseModel):
+    """Human-in-the-loop review of one investigation (2-A)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["approve", "reject"]
+    comment: str = Field(default="", max_length=2000)
+    reviewer: str = Field(min_length=1, max_length=120)
+
+
+class StoredReview(BaseModel):
+    """A recorded review, persisted alongside its investigation id."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    investigation_id: str
+    decision: Literal["approve", "reject"]
+    comment: str
+    reviewer: str
+    reviewed_at: str
+
+
+class InvestigationReport(BaseModel):
+    """Final report: the investigation result plus any recorded reviews."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    investigation_id: str
+    result: InvestigationResult
+    reviews: list[StoredReview]

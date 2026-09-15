@@ -1,0 +1,116 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Manufacturing Investigation Action Group",
+    "version": "1.0.0",
+    "description": "Read-only tools for a Bedrock Agent to retrieve deterministic root-cause candidates and background reference material. These tools never control equipment and never compute scores themselves -- they only expose results already produced by backend/app/workflows/investigation.py."
+  },
+  "paths": {
+    "/get-root-cause-ranking": {
+      "get": {
+        "operationId": "get_root_cause_ranking",
+        "summary": "Get the deterministic root-cause candidate ranking for one investigated incident.",
+        "description": "Returns the top-k root-cause candidates for an incident that has already been analyzed by the deterministic workflow (causRCA CausTR / time-recency baseline, or the Metal Etch PCA baseline). This tool does not compute a new ranking; it only retrieves one already produced under a specific diagnosis cutoff. Candidates are investigation leads, not confirmed causes.",
+        "parameters": [
+          {
+            "name": "incident_id",
+            "in": "query",
+            "description": "The incident identifier previously investigated (e.g. case_ab12cd34ef56ab12cd34ef56 or metal_etch_2915).",
+            "required": true,
+            "schema": { "type": "string" }
+          },
+          {
+            "name": "diagnosis_time",
+            "in": "query",
+            "description": "The diagnosis cutoff (in seconds) that was used for the investigation.",
+            "required": true,
+            "schema": { "type": "number" }
+          },
+          {
+            "name": "top_k",
+            "in": "query",
+            "description": "Maximum number of candidates to return (default 3).",
+            "required": false,
+            "schema": { "type": "integer", "default": 3 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Root-cause candidates, each with its supporting evidence.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "found": { "type": "boolean" },
+                    "candidates": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "rank": { "type": "integer" },
+                          "signal": { "type": "string" },
+                          "status": { "type": "string", "enum": ["candidate", "inconclusive"] },
+                          "reason": { "type": "string" },
+                          "evidence": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "title": { "type": "string" },
+                                "detail": { "type": "string" },
+                                "source": { "type": "string" }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/get-fault-reference": {
+      "get": {
+        "operationId": "get_fault_reference",
+        "summary": "Get general background reference material for a signal/subsystem.",
+        "description": "Returns AI-curated general engineering background (role, common causes, symptoms) for a signal name returned by get_root_cause_ranking (e.g. 'TCP Top Pwr', 'RF Load', 'Pressure'). This is NOT a verified equipment manual; it is general domain knowledge and must always be presented with its disclaimer.",
+        "parameters": [
+          {
+            "name": "variable_name",
+            "in": "query",
+            "description": "A signal name returned by get_root_cause_ranking's candidates[].signal field.",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Reference material for the requested signal's subsystem, or found=false if unknown.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "found": { "type": "boolean" },
+                    "variable": { "type": "string" },
+                    "title": { "type": "string" },
+                    "role": { "type": "string" },
+                    "common_causes": { "type": "string" },
+                    "symptoms": { "type": "string" },
+                    "disclaimer": { "type": "string" },
+                    "reason": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
