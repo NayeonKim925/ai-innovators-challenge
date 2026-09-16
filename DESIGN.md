@@ -4,7 +4,7 @@
 - Status: Active
 - Last refreshed: 2026-09-17
 - Primary product surfaces: React 조사 워크스페이스, 근거 상세, 검토·보고서, 보조 채팅.
-- Evidence reviewed: `docs/PRODUCT.md`, `docs/ARCHITECTURE.md`, `backend/app/domain.py`, `frontend/app.py`. 팀 레포에는 기존 React 코드·로고·디자인 토큰 없음. 다른 프로젝트의 화면은 가져오지 않음.
+- Evidence reviewed: `docs/PRODUCT.md`, `docs/ARCHITECTURE.md`, `backend/app/domain.py`, 기존 Streamlit과 현재 `frontend/src/App.tsx`, `frontend/src/styles.css`. 초기 구축 때 없었던 React UI·브랜드 토큰을 현재 구현 기준으로 관리한다.
 - References: `.lazyweb/quick-references/investigation-2026-09-17/report.md`. Lazyweb MCP tools/list 연결 성공, health/search 단계 HTTP 429. 미확보 이미지를 참고했다고 주장하지 않음. 공식 Linear, Metabase, Grafana 자료를 보완 근거로 사용.
 - Branding follow-up: 같은 날 Lazyweb health/search 재조회 성공. Rows·Dovetail·Tango의 브랜딩/워크스페이스 화면 메타데이터 확인. 해당 화면 이미지는 미다운로드·미검토이며 기존 시각 레퍼런스를 유지한다. 브랜드 결정은 `docs/BRAND.md`.
 
@@ -12,7 +12,7 @@
 - Name: **Cluephase / 클루페이즈**. Clue(단서) + Phase(조사 단계·공정). 이름과 메시지의 기준은 `docs/BRAND.md`, 코드 상수는 `frontend/src/brand.ts`.
 - Promise: **신호를 근거로, 근거를 판단으로.** 제조 이상을 근거로 조사하고 전문가의 판단을 기록하는 워크스페이스.
 - Personality: 정밀함, 침착함, 설명 가능성. 원인을 자동 확정한다는 인상을 주지 않는다.
-- Wordmark: 기존 연결 신호 심볼 + Cluephase 텍스트. Pretendard 720, 자간 -0.6px. 좁은 화면에서도 이름을 생략하거나 줄바꿈하지 않는다. 색과 로고는 브랜드 위치에서만 사용하고 업무 용어는 그대로 둔다.
+- Wordmark: 기존 연결 신호 심볼 + Cluephase 텍스트. 무게와 자간은 아래 Visual language 및 CSS 기준을 따른다. 좁은 화면에서도 이름을 생략하거나 줄바꿈하지 않는다. 색과 로고는 브랜드 위치에서만 사용하고 업무 용어는 그대로 둔다.
 - Trust signals: 원본 사건 ID, 실제 관측 건수, 진단 시점, 근거 출처, 분석 방식, 검토자·시간.
 - Avoid: 가짜 실시간 데이터, 확률처럼 보이는 순위 점수, 공장 실적 KPI, 과장된 AI 문구, 장식용 그래프.
 
@@ -39,10 +39,11 @@
 - Tradeoffs: 기획서의 협업 수정 기능은 API가 지원하는 승인/거절 범위까지만 UI 제공.
 
 ## Visual language
+- 2026-09-17 UI revision: 사용자가 기존 톤은 유지하되 AI 생성형 카드 대시보드 인상을 없애도록 요청. Inspo의 Minimal changelog, Glyphs learn, MotherDuck과 Lazyweb Databricks 실제 화면을 검토했다. 상세 선택·제외 근거는 `.lazyweb/design-improve/cluephase-console-2026-09-17/report.md`. 마케팅 페이지 전체를 복제하지 않고 문서형 위계, 구분선, 기술 메타정보 표현만 차용한다.
 - Color: canvas #F5F7F8, surface #FFFFFF, sidebar #142D35, ink #18333B, muted #60747C, border #DEE6E9, accent #167D7B, accent-soft #E9F4F1, warning #946019 / #FFF5E3.
-- Typography: Pretendard Variable (한글·영문, 로컬 호스팅), system sans fallback. 기본14px/1.5, 설명11~12px, 표10px, 작은 메타정보9px, 제목29px/1.3, 수치19px, 원본 ID monospace. 제목600~720, 본문400~500. 작은 메타정보의 가독성은 실제 사용자 검증 후 확대할 수 있다.
+- Typography: 로컬 Pretendard Variable + 시스템 monospace. 굵은 제목의 반복 대신 제목24px/450, 본문400~500, 기술 ID·숫자는 고정폭으로 분리. 설명·표는 11px 이상을 기본으로 한다. 워드마크도 가볍게 조정하며 기존 720 규칙보다 이번 수정 기준이 우선한다.
 - Spacing/layout rhythm: 4px 기반, 주요 간격 8/12/16/24/32; sidebar208px, 목록280px, 본문 fluid.
-- Shape/radius/elevation: 패널9px, 입력6px, 상태4px; 얇은 테두리와 미세한 그림자. 타임라인 배경만 거의 흰색의 약한 명도 변화.
+- Shape/radius/elevation: 목록과 상세를 붙인 조사 기록부. 패널은 직각·구분선 중심, 컨트롤은 최대2px 라운드, 그림자 없음. 상단 KPI 카드를 정의 목록 형태의 얇은 정보 띠로 대체. 사건은 카드가 아니라 줄 구분과 선택 레일이 있는 행. 색·뱃지는 의미가 있을 때만 사용한다.
 - Motion: 버튼150ms, 로딩 회전 아이콘; 로딩 중 무한 가짜 진행률 금지.
 - Imagery/iconography: Lucide 14~20px, 색상만으로 구분하지 않음. imagegen으로 만든 각진 연결 신호 로고, 생성 방향은 `docs/BRAND_ASSETS.md`에 보관.
 

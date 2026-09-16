@@ -124,3 +124,27 @@ test("API failure is actionable and retry recovers", async ({ page }) => {
     page.getByRole("button", { name: "조사 실행", exact: true }),
   ).toBeEnabled();
 });
+
+test("ledger summary and case navigation remain usable at narrow widths", async ({ page }) => {
+  await page.goto("/");
+  const summary = page.getByLabel("조사 환경 요약");
+  await expect(summary).toContainText("분석 데이터");
+  await expect(summary).toContainText("진단 시점 이후 데이터 제외");
+  await expect(page.locator(".incident-item").first()).toBeEnabled();
+  await page.locator(".incident-item").nth(1).click();
+  await expect(page.locator(".incident-item").nth(1)).toHaveAttribute("aria-pressed", "true");
+  for (const width of [320, 390, 900, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await expect(page.getByRole("button", { name: "조사 실행", exact: true })).toBeEnabled();
+  }
+  await page.getByRole("button", { name: /최근 알람 발생 시점으로 이동/ }).click();
+  await page.getByRole("button", { name: "조사 실행", exact: true }).click();
+  await expect(page.locator(".candidate").first()).toBeVisible();
+  for (const width of [320, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await expect(page.locator(".evidence-panel")).toBeVisible();
+  }
+  await page.screenshot({ path: "../docs/ui/mobile-results.png", fullPage: true });
+});

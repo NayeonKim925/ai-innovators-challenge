@@ -546,45 +546,24 @@ export default function App() {
           {actionError && <ErrorBox text={actionError} />}
           {page === "workspace" && (
             <>
-              <div className="overview">
+              <dl className="overview ledger-summary" aria-label="조사 환경 요약">
                 <div>
-                  <span className="metric-icon">
-                    <Database size={18} />
-                  </span>
-                  <span>
-                    <small>분석 데이터</small>
-                    <strong>{datasetLabel(dataset)}</strong>
-                  </span>
+                  <dt>분석 데이터</dt>
+                  <dd>{datasetLabel(dataset)}</dd>
                 </div>
                 <div>
-                  <span className="metric-icon">
-                    <Layers3 size={18} />
-                  </span>
-                  <span>
-                    <small>준비된 사건</small>
-                    <strong>
-                      {loading ? "—" : number(incidents.length)}
-                      <em>건</em>
-                    </strong>
-                  </span>
+                  <dt>준비된 사건</dt>
+                  <dd>{loading ? "—" : number(incidents.length)}건</dd>
                 </div>
                 <div>
-                  <span className="metric-icon">
-                    <ShieldCheck size={18} />
-                  </span>
-                  <span>
-                    <small>판단 방식</small>
-                    <strong className="metric-text">
-                      근거 기반 · 전문가 검토
-                    </strong>
-                  </span>
+                  <dt>판단 방식</dt>
+                  <dd>근거 기반 · 전문가 검토</dd>
                 </div>
                 <div className="overview-caption">
-                  관측 시점 이후 데이터는
-                  <br />
-                  조사 입력에서 제외됩니다.
+                  <dt className="sr-only">입력 범위</dt>
+                  <dd>진단 시점 이후 데이터 제외</dd>
                 </div>
-              </div>
+              </dl>
               <div className="workspace-grid">
                 <section
                   className="incident-panel panel"
@@ -646,9 +625,6 @@ export default function App() {
                           aria-pressed={incident?.id === x.id}
                         >
                           <div>
-                            <span className="case-icon">
-                              <Activity size={16} />
-                            </span>
                             <strong>사건 {shortId(x.id)}</strong>
                             <ChevronRight size={14} />
                           </div>
@@ -660,7 +636,6 @@ export default function App() {
                             )}
                             초 관측
                           </p>
-                          <span className="badge neutral">조사 가능</span>
                         </button>
                       ))
                     ) : (
