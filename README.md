@@ -10,9 +10,10 @@
 - 서비스 입력과 평가 정답 간 데이터 누출 방지: 구현 완료
 - FastAPI API와 제한된 LangGraph 조사 워크플로우: 구현 완료
 - 활성 알람 최근순 기반의 투명한 기준선: 구현 완료
-- causRCA 데이터 준비 및 benchmark 연동: 다음 단계
+- causRCA 데이터 준비 및 benchmark 연동: 구현 완료(100개 사건 runtime/evaluation 분리)
 - Metal Etch 이식성 어댑터: 다음 단계
-- 전문가 검토 저장과 React 조사 UI: 다음 단계
+- 전문가 검토 저장: 구현 완료
+- 조사 UI: Streamlit MVP 배포 완료, React UI는 다음 고도화 단계
 
 ## 제품·데이터 결정
 
@@ -39,7 +40,7 @@ make api
 
 API는 `http://127.0.0.1:8000`, OpenAPI 문서는 `/docs`에서 확인합니다. 준비된 runtime 데이터가 없으면 `/api/datasets`는 `unprepared`를 반환하며, 서비스가 임의의 데모 사건을 만들지 않습니다.
 
-### 조사·검토 데모 UI (Streamlit)
+### 조사·검토 UI (Streamlit MVP)
 
 API가 실행 중인 상태에서 별도 터미널에서 실행합니다.
 
@@ -48,7 +49,7 @@ python -m pip install -e '.[frontend]'
 make frontend
 ```
 
-기본으로 `http://localhost:8000`의 백엔드에 연결합니다. 다른 포트/호스트를 쓰면 `BACKEND_URL` 환경변수로 지정합니다 (예: `$env:BACKEND_URL="http://127.0.0.1:8010"`). 이 앱은 `backend.app`을 import하지 않고 순수 HTTP로만 통신하므로, 배포 시 백엔드와 독립적으로 옮길 수 있습니다. 사건 선택 → cutoff 지정 → 조사 실행 → 후보/근거 확인 → 전문가 승인·거절 기록 → 보고서 확인까지 한 화면에서 이어집니다.
+기본으로 `http://localhost:8000`의 백엔드에 연결합니다. 다른 포트/호스트를 쓰면 `BACKEND_URL` 환경변수로 지정합니다 (예: `$env:BACKEND_URL="http://127.0.0.1:8010"`). 이 앱은 `backend.app`을 import하지 않고 순수 HTTP로만 통신하므로, 배포 시 백엔드와 독립적으로 옮길 수 있습니다. 사건 선택 → cutoff 지정 → 조사 실행 → 후보/근거 확인 → 전문가 승인·거절 기록 → 보고서 확인까지 한 화면에서 이어집니다. 사건 상세는 짧게 캐시하고 관측값은 최근 500건만 미리 보여주므로, 채팅·검토 시 불필요한 대용량 재요청을 줄입니다. 분석 엔진은 전체 관측값을 사용합니다.
 
 ## 저장소 구조
 

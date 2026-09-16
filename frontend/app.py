@@ -35,7 +35,27 @@ BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
 BACKEND_API_TOKEN = os.getenv("BACKEND_API_TOKEN", "")
 REQUEST_TIMEOUT_S = 15
 
-st.set_page_config(page_title="제조 이상 조사", layout="wide")
+st.set_page_config(page_title="제조 이상 조사", page_icon="🔎", layout="wide")
+
+st.markdown(
+    """
+    <style>
+    .block-container { padding-top: 2rem; padding-bottom: 3rem; max-width: 1440px; }
+    [data-testid="stMetricValue"] { font-size: 1.35rem; }
+    .hero { padding: 1.2rem 1.4rem; border: 1px solid #dbeafe; border-radius: 14px;
+            background: linear-gradient(135deg, #eff6ff 0%, #ffffff 68%); margin-bottom: 1.25rem; }
+    .hero h1 { margin: 0 0 .35rem 0; letter-spacing: -.025em; }
+    .hero p { color: #64748b; margin: 0; }
+    .eyebrow { color: #2563eb; font-size: .74rem; font-weight: 700;
+               letter-spacing: .08em; text-transform: uppercase; margin-bottom: .35rem; }
+    .step-card { border: 1px solid #e2e8f0; border-radius: 10px; padding: .8rem .9rem;
+                 min-height: 92px; background: #fff; }
+    .step-card strong { display: block; margin-bottom: .25rem; }
+    .step-card span { color: #64748b; font-size: .86rem; }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 
 @st.cache_resource
@@ -57,6 +77,19 @@ def _get_cached(path: str) -> dict[str, Any] | None:
 
 
 def _get(path: str) -> dict[str, Any] | None:
+    payload = _get_cached(path)
+    if payload is None:
+        st.error(f"백엔드 요청 실패 ({path})")
+    return payload
+
+
+def _get_detail(path: str) -> dict[str, Any] | None:
+    """Read immutable incident detail from the short-lived GET cache.
+
+    Streamlit reruns the script after every widget interaction. Without this
+    cache, review and chat actions download the complete observation history
+    again, which makes the deployed page feel much slower than the analysis.
+    """
     payload = _get_cached(path)
     if payload is None:
         st.error(f"백엔드 요청 실패 ({path})")
@@ -105,9 +138,36 @@ def _render_trace(trace: list[dict[str, Any]]) -> None:
         )
 
 
-st.title("제조 이상 조사")
+st.markdown(
+    """
+    <section class="hero">
+      <div class="eyebrow">Evidence-first investigation workspace</div>
+      <h1>제조 이상 조사</h1>
+      <p>관측값에서 검증 가능한 원인 후보를 만들고, 전문가가 근거를 확인해 판단 이력을 남깁니다.</p>
+    </section>
+    """,
+    unsafe_allow_html=True,
+)
+
+flow_cols = st.columns(5)
+for col, (number, title, description) in zip(
+    flow_cols,
+    [
+        ("01", "사건 선택", "데이터셋과 이상 사건을 고릅니다."),
+        ("02", "시점 고정", "조사 시점 이전 관측값만 사용합니다."),
+        ("03", "후보 산출", "결정론적 분석이 신호를 순위화합니다."),
+        ("04", "근거 검토", "후보마다 시점·출처를 확인합니다."),
+        ("05", "판단 기록", "전문가 승인·거절과 보고서를 남깁니다."),
+    ],
+):
+    with col:
+        st.markdown(
+            f'<div class="step-card"><strong>{number} · {title}</strong>'
+            f'<span>{description}</span></div>',
+            unsafe_allow_html=True,
+        )
 st.caption(
-    "관측값에서 검증 가능한 원인 후보와 근거를 정리합니다. 설비 제어는 하지 않으며, "
+    "이 서비스는 설비를 제어하거나 원인을 확정하지 않습니다. 후보는 조사 우선순위이며, "
     "최종 판단은 담당 엔지니어가 확정합니다."
 )
 
@@ -127,6 +187,15 @@ with st.sidebar:
 datasets_payload = _get("/api/datasets")
 if datasets_payload:
     st.subheader("데이터셋 상태")
+    ready_count = sum(item["status"] == "ready" for item in datasets_payload["datasets"])
+    total_incidents = sum(item["incident_count"] for item in datasets_payload["datasets"])
+    metric_cols = st.columns(3)
+    with metric_cols[0]:
+        st.metric("준비된 데이터셋", f"{ready_count}/{len(datasets_payload['datasets'])}")
+    with metric_cols[1]:
+        st.metric("조사 가능한 사건", f"{total_incidents:,}건")
+    with metric_cols[2]:
+        st.metric("분석 모드", health.get("mode", "unknown") if health else "unknown")
     cols = st.columns(len(datasets_payload["datasets"]) or 1)
     for col, dataset in zip(cols, datasets_payload["datasets"]):
         with col:
@@ -158,7 +227,7 @@ incident_labels = {
 selected_label = st.selectbox("사건", options=list(incident_labels.keys()))
 selected_incident = incident_labels[selected_label]
 
-incident_detail = _get(f"/api/incidents/{selected_incident['id']}")
+incident_detail = _get_detail(f"/api/incidents/{selected_incident['id']}")
 if incident_detail is None:
     st.stop()
 
@@ -169,7 +238,13 @@ st.caption(
     f"capability: {', '.join(incident_detail['capabilities']) or '없음'}"
 )
 with st.expander("관측값 보기 (조사 시점 이전에 실제로 관측 가능한 값만 포함)"):
-    st.dataframe(incident_detail["observations"], use_container_width=True)
+    observation_preview = incident_detail["observations"][-500:]
+    st.caption(
+        f"전체 {len(incident_detail['observations']):,}건 중 "
+        f"최근 {len(observation_preview):,}건을 표시합니다. "
+        "분석 엔진은 전체 관측값을 사용합니다."
+    )
+    st.dataframe(observation_preview, use_container_width=True, height=360)
 
 st.divider()
 st.subheader("2. 진단 시점(cutoff) 지정 및 조사 실행")
@@ -301,7 +376,10 @@ if investigation:
 
     st.divider()
     st.subheader("조사 결과에 대해 질문")
-    st.caption("답변은 현재 조사 결과와 연결된 근거만 사용합니다. 설비 조작 지시는 제공하지 않습니다.")
+    st.caption(
+        "답변은 현재 조사 결과와 연결된 근거만 사용합니다. "
+        "설비 조작 지시는 제공하지 않습니다."
+    )
     for message in st.session_state.chat_history:
         with st.chat_message(message["role"]):
             st.write(message["content"])
