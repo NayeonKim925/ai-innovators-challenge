@@ -11,6 +11,8 @@ __pycache__/
 # JavaScript
 node_modules/
 dist/
+test-results/
+playwright-report/
 
 # Local configuration and databases
 .env

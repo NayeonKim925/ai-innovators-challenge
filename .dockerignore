@@ -9,3 +9,11 @@ reports
 data/raw
 data/evaluation
 backend/manufacturing_investigation.egg-info
+**/node_modules
+**/dist
+**/test-results
+.venv
+.venv*
+.omx
+.lazyweb
+docs/ui

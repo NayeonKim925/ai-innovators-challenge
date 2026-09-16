@@ -66,11 +66,11 @@ data/processed/    재생성 가능한 중간 산출물. 서비스에는 명시�
 | M0 데이터 준비 | 완료 | `data/runtime/causrca/incidents.json`에 100개 HIL 사건, `data/evaluation/causrca/cases.json`에 정답 분리 |
 | M1 benchmark | 기준선 완료 | time-recency 100건 실행: 실패 0, Hit@1 0.39, Hit@3 0.60, MRR 0.4833, MAP@3 0.3197 |
 | M2 API·검토 저장 | 완료 | Lambda/API Gateway, DynamoDB 저장, review/report/chat API |
-| M3 조사 UI | Streamlit MVP 완료 | ECS Express 공개 엔드포인트에서 사건 선택→조사→검토→보고서 흐름 확인 |
+| M3 조사 UI | React 구현·AWS 실동작 확인 | 사건 선택→조사→근거→검토→질문→보고서/기록 복원 로컬 실API 검증, AWS 공개 주소에서 화면/조사 API 200 확인. 상세는 `docs/UI_IMPLEMENTATION.md` |
 | M4 선택적 LLM 설명 | 조건부 구현 | Bedrock 설정은 있지만 기본값은 결정론적 모드, 비동기 큐는 권한 부족으로 비활성 |
 | M5 Metal Etch 이식성 | 보류 | 어댑터 코드는 있으나 발표용 이식성 시나리오와 별도 검증이 남음 |
 
-현재 공개 프론트는 React 완성본이 아니라 M3의 Streamlit 운영 UI다. 따라서 다음 고도화의 우선순위는 Streamlit에 기능을 계속 덧붙이는 것이 아니라, 이미 고정한 API 계약을 사용해 React 조사 UI를 구현하고 동일한 사건→근거→검토 흐름을 옮기는 것이다.
+2026-09-17 기준 고정된 API 계약을 사용하는 React 조사 UI를 구현했다. Streamlit은 비교·복구용으로 보존한다. 다음 고도화는 새 화면 추가보다 실제 Bedrock 상태 검증, 사용자/조직 권한, 비용 제한, 전문가 사용성 검증 순서로 진행한다. 이번 UI 작업을 M4 생성 품질이나 M5 데이터 이식성 완료로 계산하지 않는다.
 
 ### 이미 구현됨
 
