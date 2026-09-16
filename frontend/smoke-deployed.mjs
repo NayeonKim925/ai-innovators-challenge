@@ -16,6 +16,8 @@ try {
     waitUntil: "networkidle",
     timeout: 45000,
   });
+  await expect(page).toHaveTitle("Cluephase 클루페이즈 · 제조 이상 조사 워크스페이스");
+  await expect(page.getByRole("link", { name: "Cluephase 클루페이즈 · 조사 홈" })).toBeVisible();
   await expect(
     page.getByRole("heading", { name: "조사 워크스페이스" }),
   ).toBeVisible();

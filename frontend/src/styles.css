@@ -185,10 +185,41 @@ small {
 .brand small {
   display: block;
   font-size: 8px;
-  letter-spacing: 1.25px;
+  letter-spacing: 0.2px;
   color: #97b0b6;
   font-weight: 450;
   margin-top: 2px;
+}
+.brand-wordmark {
+  font-weight: 720;
+  letter-spacing: -0.6px;
+  white-space: nowrap;
+}
+.brand-symbol {
+  flex-shrink: 0;
+}
+.guide-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.guide-brand strong {
+  display: block;
+  font-size: 28px;
+  font-weight: 720;
+  letter-spacing: -0.8px;
+}
+.guide-brand span {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.guide .brand-tagline {
+  font-size: 17px;
+  font-weight: 650;
+  color: #167d7b;
 }
 .brand-symbol {
   background: #f4f9f8;

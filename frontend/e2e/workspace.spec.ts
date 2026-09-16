@@ -7,6 +7,9 @@ test("real data: investigate, inspect evidence, review, ask, export, restore", a
   page.on("pageerror", (e) => errors.push(e.message));
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.goto("/");
+  await expect(page).toHaveTitle("Cluephase 클루페이즈 · 제조 이상 조사 워크스페이스");
+  await expect(page.getByRole("link", { name: "Cluephase 클루페이즈 · 조사 홈" })).toBeVisible();
+  await expect(page.locator('meta[name="description"]')).toHaveAttribute("content", /Cluephase\(클루페이즈\)/);
   await expect(
     page.getByRole("button", { name: "조사 실행", exact: true }),
   ).toBeEnabled();
@@ -42,7 +45,15 @@ test("real data: investigate, inspect evidence, review, ask, export, restore", a
   await expect(page.getByText("전문가 검토가 저장되었습니다.")).toBeVisible();
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "보고서", exact: true }).click();
-  expect((await download).suggestedFilename()).toMatch(/\.md$/);
+  const report = await download;
+  expect(report.suggestedFilename()).toMatch(/^cluephase-investigation-.*\.md$/);
+  const stream = await report.createReadStream();
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
+  const reportText = Buffer.concat(chunks).toString("utf8");
+  expect(reportText).toContain("# Cluephase · 제조 이상 조사 보고서");
+  expect(reportText).toContain("신호를 근거로, 근거를 판단으로.");
+  expect(reportText).toContain("확정된 원인이나 설비 조작 지시가 아닙니다.");
   await page.getByRole("tab", { name: "근거에 질문" }).click();
   await page
     .getByLabel("조사 질문", { exact: true })
@@ -57,6 +68,11 @@ test("real data: investigate, inspect evidence, review, ask, export, restore", a
   await page.getByRole("tab", { name: "전문가 검토" }).click();
   await expect(page.locator(".review-entry")).toHaveCount(1);
   expect(errors).toEqual([]);
+  await page.getByRole("button", { name: "사용 안내", exact: true }).click();
+  await expect(page.locator(".guide-brand")).toContainText("Cluephase");
+  await expect(page.locator(".brand-tagline")).toHaveText("신호를 근거로, 근거를 판단으로.");
+  await page.locator(".guide-brand img").evaluate((image: HTMLImageElement) => image.decode());
+  await page.screenshot({ path: "../docs/ui/brand-guide.png", fullPage: true });
 });
 
 test("mobile: layout, search, empty dataset and keyboard navigation", async ({
@@ -64,6 +80,7 @@ test("mobile: layout, search, empty dataset and keyboard navigation", async ({
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
+  await expect(page.getByRole("link", { name: "Cluephase 클루페이즈 · 조사 홈" })).toBeVisible();
   await expect(
     page.getByRole("button", { name: "조사 실행", exact: true }),
   ).toBeEnabled();

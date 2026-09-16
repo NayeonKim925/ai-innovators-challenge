@@ -40,6 +40,7 @@ import type {
   Review,
 } from "./api";
 import { displayText } from "./presentation";
+import { brand } from "./brand";
 
 type Page = "workspace" | "history" | "datasets" | "guide";
 type Tab = "signals" | "results" | "review" | "chat";
@@ -368,7 +369,7 @@ export default function App() {
         `/investigations/${run.investigation_id}/report`,
       );
       download(
-        `investigation-${shortId(run.incident_id)}.md`,
+        `${brand.reportPrefix}-${shortId(run.incident_id)}.md`,
         reportMarkdown(report),
         "text/markdown",
       );
@@ -433,6 +434,7 @@ export default function App() {
         <a
           className="brand"
           href="#"
+          aria-label={`${brand.name} ${brand.koreanName} · 조사 홈`}
           onClick={(e) => {
             e.preventDefault();
             setPage("workspace");
@@ -441,14 +443,14 @@ export default function App() {
           <span className="brand-symbol">
             <img src="/brand-mark.png" alt="" />
           </span>
-          <span>
-            공정 조사<small>EVIDENCE WORKSPACE</small>
+          <span className="brand-wordmark">
+            {brand.name}<small>{brand.koreanName} · 근거 중심 조사</small>
           </span>
         </a>
         <div className="workspace-label">
-          <span className="workspace-avatar">M</span>
+          <span className="workspace-avatar" aria-hidden="true"><Layers3 size={15} /></span>
           <span>
-            Manufacturing Lab<small>공유 조사 공간</small>
+            제조 이상 조사<small>공개 데이터 · 공유 검증 공간</small>
           </span>
         </div>
         <p className="nav-label">WORKSPACE</p>
@@ -477,7 +479,7 @@ export default function App() {
         <div className="sidebar-bottom">
           <div className="safety-note">
             <ShieldCheck size={20} />
-            <strong>근거를 먼저, 판단은 함께.</strong>
+            <strong>{brand.promise}</strong>
             <p>
               AI는 조사 후보를 제안하고
               <br />
@@ -1351,6 +1353,11 @@ export default function App() {
           )}
           {page === "guide" && (
             <section className="panel standalone guide">
+              <div className="guide-brand">
+                <img src="/brand-mark.png" width="48" height="48" alt="" />
+                <div><strong>{brand.name}</strong><span>{brand.koreanName} · {brand.descriptor}</span></div>
+              </div>
+              <p className="brand-tagline">{brand.tagline}</p>
               <h2>확인 가능한 근거로, 사람이 마무리하는 조사</h2>
               <p>
                 이 서비스는 공정 관측에서 원인 후보와 조사 근거를 정리하는
@@ -1380,8 +1387,8 @@ export default function App() {
             </section>
           )}
           <footer className="page-footer">
-            <span>공정 조사 / EVIDENCE WORKSPACE</span>
-            <span>AI의 제안에 근거를, 전문가의 판단에 맥락을.</span>
+            <span>{brand.name} / {brand.descriptor}</span>
+            <span>{brand.tagline}</span>
           </footer>
         </main>
       </div>

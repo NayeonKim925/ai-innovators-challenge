@@ -6,7 +6,7 @@
 
 - 네이비 사이드바 + 청록 실행 버튼 + 밝은 회색 캔버스. 상태에만 제한적으로 색을 쓴다.
 - Pretendard Variable 로컬 제공, Lucide 아이콘, 생성형 이미지로 만든 열린 육각형/신호 연결 로고.
-- 설명형 이름 `공정 조사` 사용. 최종 제품명이나 상표로 확정하지 않았다.
+- 후속 브랜딩에서 **Cluephase(클루페이즈)** 적용. “신호를 근거로, 근거를 판단으로.” 이름은 제품 작업명이며 상표·도메인 사용 가능성 검토는 미완료다. [브랜드 가이드](BRAND.md), [브랜드 보드](brand-board.html).
 - Lazyweb quick-references 스킬/MCP를 먼저 사용했으나 도구 목록 이후 HTTP429로 검색 불가. Linear, Metabase, Grafana 공식 자료로 대체했으며 Lazyweb 검색 결과로 표기하지 않는다.
 - [DESIGN.md](../DESIGN.md)가 디자인 원본이며 [레퍼런스 기록](../.lazyweb/quick-references/investigation-2026-09-17/report.md)에 채택·제외 이유를 남겼다.
 
@@ -29,11 +29,13 @@
 ## 검증
 
 - TypeScript strict typecheck + Vite production build 통과
-- Node 테스트 9개: 프록시/키 비노출, API allowlist, ingress Origin, 경로 검증, 크기 제한, 캐시, 한국어 표시
+- Node 테스트 10개: 프록시/키 비노출, API allowlist, ingress Origin, 경로 검증, 크기 제한, 캐시, 한국어 표시, 브랜드 상수와 정적 메타데이터 일치
 - 기존 Python 백엔드 테스트 47개 통과, 외부 라이브러리 deprecation 경고 10개
 - 실제 로컬 API Playwright 3개 통과: 조사→근거→검토→질문→다운로드→기록 복원, 390px 모바일/빈 데이터/키보드 접근, API 실패 후 재시도
 - 기본 흐름은 LLM 없이 검증했다. Bedrock의 생성 품질/지연 개선을 이번 UI 검증으로 주장하지 않는다.
 - [데스크톱](ui/desktop-workspace.png), [분석 결과](ui/desktop-results.png), [모바일](ui/mobile-workspace.png)
+- 브랜드 적용 후에도 같은 테스트가 통과했다. 보고서 파일명·표지·안전 문구, 브라우저 제목·접근 가능한 브랜드 링크, 안내 페이지의 로고 decode를 추가 검증했다. [브랜드 안내](ui/brand-guide.png), [브랜드 보드 캡처](ui/brand-board.png).
+- 추가 정적 검사에서 기존 백엔드 Ruff 지적 47건(E501 줄 길이 44건, I001 import 순서 3건)을 확인했다. 이번 변경은 백엔드 diff가 없으며 해당 스타일 정리는 범위 밖으로 남겼다. 프론트 typecheck/build, 게이트웨이/배포 스모크 스크립트 구문 검사와 `git diff --check`는 통과했다.
 
 ## AWS 반영
 

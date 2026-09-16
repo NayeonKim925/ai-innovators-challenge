@@ -1,3 +1,5 @@
+import { brand } from "./brand";
+
 export interface Dataset {
   dataset: string;
   status: string;
@@ -139,7 +141,8 @@ export function download(filename: string, data: string, mime: string) {
 export function reportMarkdown(report: Report): string {
   const r = report.result;
   return [
-    `# 제조 이상 조사 보고서`,
+    `# ${brand.name} · 제조 이상 조사 보고서`,
+    `${brand.koreanName} | ${brand.tagline}`,
     `조사 ID: ${report.investigation_id}`,
     `사건: ${r.incident_id}`,
     `진단 시점: ${r.diagnosis_time}s`,

@@ -6,9 +6,13 @@
 - Primary product surfaces: React 조사 워크스페이스, 근거 상세, 검토·보고서, 보조 채팅.
 - Evidence reviewed: `docs/PRODUCT.md`, `docs/ARCHITECTURE.md`, `backend/app/domain.py`, `frontend/app.py`. 팀 레포에는 기존 React 코드·로고·디자인 토큰 없음. 다른 프로젝트의 화면은 가져오지 않음.
 - References: `.lazyweb/quick-references/investigation-2026-09-17/report.md`. Lazyweb MCP tools/list 연결 성공, health/search 단계 HTTP 429. 미확보 이미지를 참고했다고 주장하지 않음. 공식 Linear, Metabase, Grafana 자료를 보완 근거로 사용.
+- Branding follow-up: 같은 날 Lazyweb health/search 재조회 성공. Rows·Dovetail·Tango의 브랜딩/워크스페이스 화면 메타데이터 확인. 해당 화면 이미지는 미다운로드·미검토이며 기존 시각 레퍼런스를 유지한다. 브랜드 결정은 `docs/BRAND.md`.
 
 ## Brand
-- Personality: 정밀함, 침착함, 설명 가능성. 임시 제품 표기는 '공정 조사'; 최종 서비스명은 미정.
+- Name: **Cluephase / 클루페이즈**. Clue(단서) + Phase(조사 단계·공정). 이름과 메시지의 기준은 `docs/BRAND.md`, 코드 상수는 `frontend/src/brand.ts`.
+- Promise: **신호를 근거로, 근거를 판단으로.** 제조 이상을 근거로 조사하고 전문가의 판단을 기록하는 워크스페이스.
+- Personality: 정밀함, 침착함, 설명 가능성. 원인을 자동 확정한다는 인상을 주지 않는다.
+- Wordmark: 기존 연결 신호 심볼 + Cluephase 텍스트. Pretendard 720, 자간 -0.6px. 좁은 화면에서도 이름을 생략하거나 줄바꿈하지 않는다. 색과 로고는 브랜드 위치에서만 사용하고 업무 용어는 그대로 둔다.
 - Trust signals: 원본 사건 ID, 실제 관측 건수, 진단 시점, 근거 출처, 분석 방식, 검토자·시간.
 - Avoid: 가짜 실시간 데이터, 확률처럼 보이는 순위 점수, 공장 실적 KPI, 과장된 AI 문구, 장식용 그래프.
 
@@ -79,6 +83,6 @@
 - Verification: typecheck/build, gateway 테스트, 기존 Python 테스트, 실제 runtime 브라우저 E2E, 1440/390px 스크린샷과 visual-verdict.
 
 ## Open questions
-- [ ] 최종 제품명 / 팀 / 현재는 설명형 이름 사용.
+- [ ] 상표·도메인 확인 / 팀 / Cluephase는 제품 작업명으로 적용, 상용 출시 전 별도 검토.
 - [ ] 사용자별 로그인·조직 접근제어 / 후속 서비스 단계 / 공개 운영 전 필요.
 - [ ] 전문가 후보 수정 API / 백엔드 / 현재 승인·거절까지만 제공.
