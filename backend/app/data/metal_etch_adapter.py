@@ -33,15 +33,20 @@ Metal Etch에는 실제 벽시계 타임스탬프가 없다. 원본 "Time" 컬�
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ConfigDict
 
 from ..analytics.metal_etch_variables import EXCLUDED_SIGNALS
 from ..domain import Capability, DatasetName, Incident, Observation, TimeRange
+
+if TYPE_CHECKING:
+    import numpy as np
 
 # ★ 왜 조건부 임포트인가 (metal_etch_pca.py와 동일 패턴) ★
 # numpy/scipy는 원본 .mat 파일을 파싱하는 "데이터 준비" 함수들
@@ -51,13 +56,23 @@ from ..domain import Capability, DatasetName, Incident, Observation, TimeRange
 # load_normal_baseline()은 이미 준비된 JSON을 읽어서 Pydantic으로 검증만 하고
 # np./scipy. 참조가 전혀 없어서, numpy/scipy가 없어도 그대로 동작해야 한다
 # (그래서 이 함수는 아래 _NUMPY_AVAILABLE 체크를 두지 않는다).
-try:
-    import numpy as np
-    import scipy.io
+_NUMPY_AVAILABLE = (
+    importlib.util.find_spec("numpy") is not None
+    and importlib.util.find_spec("scipy") is not None
+)
 
-    _NUMPY_AVAILABLE = True
-except ImportError:
-    _NUMPY_AVAILABLE = False
+
+def _load_numeric_dependencies():
+    """Load heavy .mat parsing dependencies only in offline preparation paths."""
+    try:
+        import numpy as np
+        import scipy.io as scipy_io
+    except ImportError as exc:  # pragma: no cover - guarded by the caller
+        raise ImportError(
+            "Metal Etch data preparation requires numpy and scipy; "
+            "install with `pip install -e '.[metal-etch]'`."
+        ) from exc
+    return np, scipy_io
 
 # inspect_failing_cases.py로 직접 눈으로 대조해서 확인된, 라벨과 실측 신호가
 # 어긋난 웨이퍼 (flag_unreliable_labels.py와 동일한 목록). 추측으로 다른
@@ -149,6 +164,7 @@ def _normalize_variable_names(raw) -> list[str]:
 def _matrix_to_observations(
     matrix: np.ndarray, variable_names: list[str], *, exclude: frozenset[str]
 ) -> list[Observation]:
+    np, _ = _load_numeric_dependencies()
     matrix = np.asarray(matrix, dtype=float)
     observations: list[Observation] = []
     for row_index, row in enumerate(matrix):
@@ -174,7 +190,8 @@ class _RawWaferRecord:
 
 def _iter_wafer_records(path: Path) -> tuple[list[_RawWaferRecord], list[str]]:
     """MACHINE_Data.mat 하나를 읽어 (웨이퍼별 원시 레코드 목록, 변수 이름 목록)을 반환한다."""
-    raw = scipy.io.loadmat(str(path), simplify_cells=True)
+    np, scipy_io = _load_numeric_dependencies()
+    raw = scipy_io.loadmat(str(path), simplify_cells=True)
     mat = _unwrap(raw)
     variable_names = _normalize_variable_names(mat["variables"])
 

@@ -23,6 +23,7 @@ LAMBDA_ROLE_NAME = "mfg-investigation-api-lambda-role"
 API_NAME = "mfg-investigation-api"
 LLM_JOB_QUEUE_NAME = os.getenv("LLM_JOB_QUEUE_NAME", "mfg-investigation-narrative-jobs")
 DDB_TABLE_NAME = os.getenv("INVESTIGATION_DDB_TABLE", "mfg-investigations")
+DEPLOY_ASYNC_LLM = os.getenv("DEPLOY_ASYNC_LLM", "true").lower() in {"1", "true", "yes"}
 API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN", "")
 BEDROCK_MODEL_ARN = os.getenv("BEDROCK_MODEL_ARN", "")
 BEDROCK_GUARDRAIL_ARN = os.getenv("BEDROCK_GUARDRAIL_ARN", "")
@@ -197,6 +198,7 @@ def ensure_lambda_function(role_arn: str, queue_url: str) -> str:
         return response["FunctionArn"]
     except client.exceptions.ResourceConflictException:
         client.update_function_code(FunctionName=LAMBDA_FUNCTION_NAME, ImageUri=ECR_URI)
+        client.get_waiter("function_updated").wait(FunctionName=LAMBDA_FUNCTION_NAME)
         client.update_function_configuration(
             FunctionName=LAMBDA_FUNCTION_NAME,
             Timeout=30,
@@ -228,6 +230,7 @@ def ensure_worker_function(role_arn: str, queue_url: str) -> str:
         return response["FunctionArn"]
     except client.exceptions.ResourceConflictException:
         client.update_function_code(FunctionName=WORKER_FUNCTION_NAME, ImageUri=ECR_URI)
+        client.get_waiter("function_updated").wait(FunctionName=WORKER_FUNCTION_NAME)
         client.update_function_configuration(
             FunctionName=WORKER_FUNCTION_NAME,
             Timeout=60,
@@ -339,13 +342,18 @@ if __name__ == "__main__":
     role_arn = ensure_lambda_role()
     ensure_ecr_repo()
     ensure_investigation_table()
-    queue_url, queue_arn = ensure_job_queue()
+    if DEPLOY_ASYNC_LLM:
+        queue_url, queue_arn = ensure_job_queue()
+    else:
+        queue_url, queue_arn = "", ""
+        print("async LLM worker deployment disabled (DEPLOY_ASYNC_LLM=false)")
     push_image()
     lambda_arn = ensure_lambda_function(role_arn, queue_url)
     wait_lambda_active()
-    worker_arn = ensure_worker_function(role_arn, queue_url)
-    wait_worker_active()
-    ensure_worker_event_source(worker_arn, queue_arn)
+    if DEPLOY_ASYNC_LLM:
+        worker_arn = ensure_worker_function(role_arn, queue_url)
+        wait_worker_active()
+        ensure_worker_event_source(worker_arn, queue_arn)
     api_id = ensure_http_api(lambda_arn)
     allow_apigw_to_invoke_lambda(api_id)
     endpoint = get_api_endpoint(api_id)
