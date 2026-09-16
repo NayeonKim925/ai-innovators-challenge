@@ -17,9 +17,6 @@ PCA 결과를 계산했다. 이 backend 버전은 그 레거시 의존을 없애
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 from ..domain import Candidate, Evidence
 
 # fault_document_lookup.py는 backend 패키지 경계 밖(저장소 루트)에 있다.
@@ -90,16 +87,18 @@ def summarize_candidates(candidates: list[Candidate], evidence: list[Evidence], 
     """`investigate()`가 이미 계산한 결정론적 결과를 LLM에 넘길 최소 payload로
     정리한다. 숫자를 다시 계산하지 않고, 있는 값만 골라 담는다."""
     evidence_by_id = {item.id: item for item in evidence}
-    top = [c for c in candidates if c.status == "candidate"][:limit]
+    top = candidates[:limit]
     return {
         "found": bool(top),
         "candidates": [
             {
                 "rank": candidate.rank,
                 "signal": candidate.signal,
+                "status": candidate.status,
                 "reason": candidate.reason,
                 "evidence": [
                     {
+                        "id": evidence_by_id[eid].id,
                         "title": evidence_by_id[eid].title,
                         "detail": evidence_by_id[eid].detail,
                         "source": evidence_by_id[eid].source,

@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 
-from ..domain import Capability, DatasetName, Incident
+from ..domain import DatasetName, Incident
 
 FORBIDDEN_RUNTIME_KEYS = frozenset(
     {
@@ -47,6 +47,7 @@ class JsonRuntimeRepository:
 
     def __init__(self, root: Path | None = None) -> None:
         self.root = (root or runtime_root()).resolve()
+        self._cache: dict[DatasetName, list[Incident]] = {}
 
     def _path_for(self, dataset: DatasetName) -> Path:
         path = (self.root / dataset.value / "incidents.json").resolve()
@@ -58,14 +59,20 @@ class JsonRuntimeRepository:
         datasets = [dataset] if dataset else list(DatasetName)
         incidents: list[Incident] = []
         for name in datasets:
+            if name in self._cache:
+                incidents.extend(self._cache[name])
+                continue
             path = self._path_for(name)
             if not path.exists():
+                self._cache[name] = []
                 continue
             payload = json.loads(path.read_text(encoding="utf-8"))
             if not isinstance(payload, list):
                 raise ValueError(f"Runtime index must be a list: {path}")
             _reject_forbidden_keys(payload)
-            incidents.extend(Incident.model_validate(item) for item in payload)
+            parsed = [Incident.model_validate(item) for item in payload]
+            self._cache[name] = parsed
+            incidents.extend(parsed)
         return incidents
 
     def get_incident(self, incident_id: str) -> Incident | None:

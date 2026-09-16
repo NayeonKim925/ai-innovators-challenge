@@ -83,6 +83,45 @@ def test_api_report_on_unknown_investigation_returns_404(tmp_path: Path) -> None
     assert client.get("/api/investigations/does-not-exist/report").status_code == 404
 
 
+def test_api_chat_is_scoped_to_stored_investigation(tmp_path: Path) -> None:
+    client = _client_with_prepared_incident(tmp_path)
+    created = client.post(
+        "/api/incidents/case_1/investigations",
+        json={"diagnosis_time": 3, "question": ""},
+    )
+    investigation_id = created.json()["investigation_id"]
+
+    response = client.post(
+        f"/api/investigations/{investigation_id}/chat",
+        json={"question": "왜 이 신호가 후보인가요?"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["grounded_evidence_ids"] == ["E1"]
+    assert "P101" in body["answer"]
+
+
+def test_api_protects_stateful_routes_when_token_is_configured(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("API_AUTH_TOKEN", "test-token")
+    client = _client_with_prepared_incident(tmp_path)
+
+    denied = client.post(
+        "/api/incidents/case_1/investigations",
+        json={"diagnosis_time": 3, "question": ""},
+    )
+    allowed = client.post(
+        "/api/incidents/case_1/investigations",
+        headers={"Authorization": "Bearer test-token"},
+        json={"diagnosis_time": 3, "question": ""},
+    )
+
+    assert denied.status_code == 401
+    assert allowed.status_code == 200
+
+
 def test_api_investigation_with_llm_narrative_flag_falls_back_offline(
     tmp_path: Path, monkeypatch
 ) -> None:

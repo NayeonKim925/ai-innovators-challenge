@@ -1,24 +1,14 @@
-"""Lambda handler exposed to the AgentCore Gateway as two MCP tools.
+"""Gateway tools read verified investigation results from durable storage.
 
-★ 계약이 action_group_schema.json과 다른 이유 (실행 로그로 정직하게 기록) ★
-원래 `action_group_schema.json`의 `get_root_cause_ranking`은 `incident_id` +
-`diagnosis_time`을 받아 "이미 저장된 조사 결과를 조회"하는 걸로 설계됐다.
-그 조회 대상(저장된 InvestigationResult)은 지금 FastAPI 프로세스의 in-memory
-저장소(`backend/app/repositories/investigations.py`)에만 있고, 이 저장소는
-아직 인터넷에 노출된 배포가 없다 (태스크 #17, 아직 미완료). Lambda가 그
-저장소를 직접 조회할 방법이 없으므로, 이 두 함수는 대신
-`backend/app/llm/aws/agentcore_main.py`와 같은 계약(이미 계산된
-`investigation_result` payload를 그대로 받아 재요약)을 쓴다. 이건
-"LLM/도구가 수치를 새로 계산하지 않는다"는 AGENTS.md 원칙을 그대로
-지키면서, 태스크 #17이 아직 없는 상태에서 실제로 동작 가능한 유일한
-정직한 구현이다. 태스크 #17에서 백엔드가 실제 URL로 배포되면, 이 Lambda를
-그 URL을 호출하는 방식으로 교체할 수 있다.
+The tool intentionally accepts an opaque ``investigation_id`` rather than a
+caller-supplied candidate/evidence payload. This keeps the AgentCore path
+inside the same evidence boundary as the FastAPI service.
 """
 
 from __future__ import annotations
 
 import json
-
+import os
 
 FAULT_REFERENCE: dict[str, dict[str, str]] = {
     "TCP": {
@@ -76,10 +66,28 @@ def _get_fault_reference(variable_name: str) -> dict:
     return {"found": False, "reason": f"Could not resolve a subsystem for '{variable_name}'."}
 
 
-def _get_root_cause_ranking(investigation_result: dict, limit: int = 3) -> dict:
-    """Repackages an ALREADY-COMPUTED investigation_result. Never recomputes
-    candidates/scores -- see module docstring for why this differs from the
-    original incident_id-based lookup contract."""
+def _load_investigation(investigation_id: str) -> dict | None:
+    table_name = os.getenv("INVESTIGATION_DDB_TABLE")
+    if not table_name:
+        return None
+    import boto3
+
+    response = boto3.resource(
+        "dynamodb", region_name=os.getenv("AWS_REGION", "us-east-1")
+    ).Table(table_name).get_item(Key={"investigation_id": investigation_id})
+    item = response.get("Item")
+    if not item:
+        return None
+    return json.loads(item["result_json"])
+
+
+def _get_root_cause_ranking(investigation_id: str, limit: int = 3) -> dict:
+    """Read and repackage an investigation stored by the API."""
+    if not investigation_id:
+        return {"found": False, "error": "investigation_id is required."}
+    investigation_result = _load_investigation(investigation_id)
+    if investigation_result is None:
+        return {"found": False, "error": "Investigation was not found in durable storage."}
     evidence_by_id = {item["id"]: item for item in investigation_result.get("evidence", [])}
     top = [c for c in investigation_result.get("candidates", []) if c.get("status") == "candidate"][:limit]
     return {
@@ -126,7 +134,7 @@ def handler(event, context):  # noqa: ANN001
         result = _get_fault_reference(event.get("variable_name", ""))
     elif short_name == "get_root_cause_ranking":
         result = _get_root_cause_ranking(
-            event.get("investigation_result", {}), event.get("top_k", 3)
+            event.get("investigation_id", ""), event.get("top_k", 3)
         )
     else:
         result = {
@@ -141,14 +149,7 @@ if __name__ == "__main__":
     print(json.dumps(_get_fault_reference("RF Load"), indent=2))
     print(
         json.dumps(
-            _get_root_cause_ranking(
-                {
-                    "candidates": [
-                        {"rank": 1, "signal": "RF Load", "status": "candidate", "reason": "r", "evidence_ids": ["E1"]}
-                    ],
-                    "evidence": [{"id": "E1", "title": "t", "detail": "d", "source": "s"}],
-                }
-            ),
+            {"error": "Set INVESTIGATION_DDB_TABLE to run this tool locally."},
             indent=2,
         )
     )

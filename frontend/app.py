@@ -24,6 +24,7 @@ analytics, workflow, API 계층을 섞지 않습니다" -- API도 UI와 섞으�
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
@@ -31,31 +32,49 @@ import requests
 import streamlit as st
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000").rstrip("/")
+BACKEND_API_TOKEN = os.getenv("BACKEND_API_TOKEN", "")
 REQUEST_TIMEOUT_S = 15
 
 st.set_page_config(page_title="제조 이상 조사", layout="wide")
 
 
-def _get(path: str) -> dict[str, Any] | None:
+@st.cache_resource
+def _http_session() -> requests.Session:
+    session = requests.Session()
+    if BACKEND_API_TOKEN:
+        session.headers.update({"Authorization": f"Bearer {BACKEND_API_TOKEN}"})
+    return session
+
+
+@st.cache_data(ttl=30, max_entries=100, show_spinner=False)
+def _get_cached(path: str) -> dict[str, Any] | None:
     try:
-        response = requests.get(f"{BACKEND_URL}{path}", timeout=REQUEST_TIMEOUT_S)
+        response = _http_session().get(f"{BACKEND_URL}{path}", timeout=REQUEST_TIMEOUT_S)
         response.raise_for_status()
         return response.json()
-    except requests.RequestException as exc:
-        st.error(f"백엔드 요청 실패 ({path}): {exc}")
+    except requests.RequestException:
         return None
+
+
+def _get(path: str) -> dict[str, Any] | None:
+    payload = _get_cached(path)
+    if payload is None:
+        st.error(f"백엔드 요청 실패 ({path})")
+    return payload
 
 
 def _post(path: str, payload: dict[str, Any]) -> dict[str, Any] | None:
     try:
-        response = requests.post(f"{BACKEND_URL}{path}", json=payload, timeout=REQUEST_TIMEOUT_S)
+        response = _http_session().post(
+            f"{BACKEND_URL}{path}", json=payload, timeout=REQUEST_TIMEOUT_S
+        )
         if response.status_code >= 400:
             detail = response.json().get("detail", response.text)
             st.error(f"백엔드 오류 ({response.status_code}): {detail}")
             return None
         return response.json()
-    except requests.RequestException as exc:
-        st.error(f"백엔드 요청 실패 ({path}): {exc}")
+    except requests.RequestException:
+        st.error(f"백엔드 요청 실패 ({path})")
         return None
 
 
@@ -86,10 +105,10 @@ def _render_trace(trace: list[dict[str, Any]]) -> None:
         )
 
 
-st.title("제조 이상 조사 (연구용 MVP)")
+st.title("제조 이상 조사")
 st.caption(
-    "이 도구는 설비를 제어하지 않습니다. 원인 후보는 결정론적 분석 도구가 계산하며, "
-    "최종 판단은 항상 담당 엔지니어가 검토·확정합니다."
+    "관측값에서 검증 가능한 원인 후보와 근거를 정리합니다. 설비 제어는 하지 않으며, "
+    "최종 판단은 담당 엔지니어가 확정합니다."
 )
 
 with st.sidebar:
@@ -154,13 +173,15 @@ st.subheader("2. 진단 시점(cutoff) 지정 및 조사 실행")
 
 col_cutoff, col_llm = st.columns([2, 1])
 with col_cutoff:
-    diagnosis_time = st.slider(
-        "진단 시점 (초)",
-        min_value=float(time_range["start"]),
-        max_value=float(time_range["end"]),
-        value=float(time_range["end"]),
-    )
-    question = st.text_input("담당자 질문 (선택, 기록만 되고 실행되지 않음)", value="")
+    with st.form("investigation_form", clear_on_submit=False):
+        diagnosis_time = st.slider(
+            "진단 시점 (초)",
+            min_value=float(time_range["start"]),
+            max_value=float(time_range["end"]),
+            value=float(time_range["end"]),
+        )
+        question = st.text_input("담당자 질문 (선택)", value="")
+        submit_investigation = st.form_submit_button("조사 실행", type="primary")
 with col_llm:
     include_llm_narrative = st.checkbox(
         "LLM 요약 포함 (Bedrock Claude, 선택)",
@@ -169,10 +190,16 @@ with col_llm:
         "새 원인후보를 만들거나 순위를 바꾸지 않습니다.",
     )
 
+if st.session_state.get("selected_incident_id") != selected_incident["id"]:
+    st.session_state.selected_incident_id = selected_incident["id"]
+    st.session_state.investigation = None
+    st.session_state.chat_history = []
 if "investigation" not in st.session_state:
     st.session_state.investigation = None
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
-if st.button("조사 실행", type="primary"):
+if submit_investigation:
     result = _post(
         f"/api/incidents/{selected_incident['id']}/investigations",
         {
@@ -182,6 +209,7 @@ if st.button("조사 실행", type="primary"):
         },
     )
     st.session_state.investigation = result
+    st.session_state.chat_history = []
 
 investigation = st.session_state.investigation
 
@@ -237,7 +265,39 @@ if investigation:
         report = _get(f"/api/investigations/{investigation['investigation_id']}/report")
         if report:
             st.json(report)
+            st.download_button(
+                "보고서 JSON 다운로드",
+                data=json.dumps(report, ensure_ascii=False, indent=2),
+                file_name=f"investigation-{investigation['investigation_id']}.json",
+                mime="application/json",
+            )
             if report["reviews"]:
                 st.caption(f"기록된 검토 {len(report['reviews'])}건")
             else:
                 st.caption("아직 기록된 검토가 없습니다.")
+
+    st.divider()
+    st.subheader("조사 결과에 대해 질문")
+    st.caption("답변은 현재 조사 결과와 연결된 근거만 사용합니다. 설비 조작 지시는 제공하지 않습니다.")
+    for message in st.session_state.chat_history:
+        with st.chat_message(message["role"]):
+            st.write(message["content"])
+            if message.get("evidence_ids"):
+                st.caption(f"연결된 근거: {', '.join(message['evidence_ids'])}")
+    chat_question = st.chat_input("예: 이 후보를 먼저 확인해야 하는 이유는?")
+    if chat_question:
+        st.session_state.chat_history.append({"role": "user", "content": chat_question})
+        with st.spinner("근거를 확인해 답변을 생성하는 중..."):
+            chat_result = _post(
+                f"/api/investigations/{investigation['investigation_id']}/chat",
+                {"question": chat_question},
+            )
+        if chat_result:
+            st.session_state.chat_history.append(
+                {
+                    "role": "assistant",
+                    "content": chat_result["answer"],
+                    "evidence_ids": chat_result.get("grounded_evidence_ids", []),
+                }
+            )
+        st.rerun()

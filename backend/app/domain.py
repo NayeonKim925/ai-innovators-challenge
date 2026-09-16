@@ -27,7 +27,7 @@ class TimeRange(BaseModel):
     end: float = Field(ge=0)
 
     @model_validator(mode="after")
-    def start_precedes_end(self) -> "TimeRange":
+    def start_precedes_end(self) -> TimeRange:
         if self.end < self.start:
             raise ValueError("end must not precede start")
         return self
@@ -97,12 +97,28 @@ class InvestigationRequest(BaseModel):
     include_llm_narrative: bool = False
 
 
+class ChatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: str = Field(min_length=1, max_length=2000)
+
+
+class ChatResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    answer: str
+    grounded_evidence_ids: list[str] = Field(default_factory=list)
+    blocked: bool = False
+    trace: TraceEvent | None = None
+
+
 class InvestigationResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     incident_id: str
     dataset: DatasetName
     diagnosis_time: float
+    question: str = ""
     # "deterministic_with_llm_narrative" is only used when include_llm_narrative
     # was requested AND the narrative was actually generated (ADR-0002). If the
     # LLM call fails or is unavailable, mode stays "deterministic" and

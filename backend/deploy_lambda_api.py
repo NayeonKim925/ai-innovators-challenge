@@ -7,6 +7,7 @@ Run: python backend/deploy_lambda_api.py
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 
@@ -19,6 +20,8 @@ LOCAL_IMAGE = "mfg-investigation-api:latest"
 LAMBDA_FUNCTION_NAME = "mfg-investigation-api"
 LAMBDA_ROLE_NAME = "mfg-investigation-api-lambda-role"
 API_NAME = "mfg-investigation-api"
+DDB_TABLE_NAME = os.getenv("INVESTIGATION_DDB_TABLE", "mfg-investigations")
+API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN", "")
 
 sts = boto3.client("sts", region_name=REGION)
 ACCOUNT_ID = sts.get_caller_identity()["Account"]
@@ -48,9 +51,29 @@ def ensure_lambda_role() -> str:
         RoleName=LAMBDA_ROLE_NAME,
         PolicyArn="arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
     )
-    # include_llm_narrative=True calls Bedrock directly from inside the request.
-    iam.attach_role_policy(
-        RoleName=LAMBDA_ROLE_NAME, PolicyArn="arn:aws:iam::aws:policy/AmazonBedrockFullAccess"
+    iam.put_role_policy(
+        RoleName=LAMBDA_ROLE_NAME,
+        PolicyName="mfg-investigation-runtime-access",
+        PolicyDocument=json.dumps(
+            {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "bedrock:InvokeModel",
+                            "bedrock:ApplyGuardrail",
+                        ],
+                        "Resource": "*",
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"],
+                        "Resource": f"arn:aws:dynamodb:{REGION}:{ACCOUNT_ID}:table/{DDB_TABLE_NAME}",
+                    },
+                ],
+            }
+        ),
     )
     return LAMBDA_ROLE_ARN
 
@@ -63,6 +86,21 @@ def ensure_ecr_repo() -> None:
     except ecr.exceptions.RepositoryNotFoundException:
         ecr.create_repository(repositoryName=ECR_REPO_NAME)
         print(f"created ECR repo {ECR_REPO_NAME}")
+
+
+def ensure_investigation_table() -> None:
+    dynamodb = boto3.client("dynamodb", region_name=REGION)
+    try:
+        dynamodb.describe_table(TableName=DDB_TABLE_NAME)
+        print(f"DynamoDB table {DDB_TABLE_NAME} already exists")
+    except dynamodb.exceptions.ResourceNotFoundException:
+        dynamodb.create_table(
+            TableName=DDB_TABLE_NAME,
+            KeySchema=[{"AttributeName": "investigation_id", "KeyType": "HASH"}],
+            AttributeDefinitions=[{"AttributeName": "investigation_id", "AttributeType": "S"}],
+            BillingMode="PAY_PER_REQUEST",
+        )
+        print(f"created DynamoDB table {DDB_TABLE_NAME}")
 
 
 def push_image() -> None:
@@ -86,6 +124,19 @@ def push_image() -> None:
 
 def ensure_lambda_function(role_arn: str) -> str:
     client = boto3.client("lambda", region_name=REGION)
+    environment = {
+        "Variables": {
+            "CORS_ORIGINS": os.getenv("CORS_ORIGINS", "http://localhost:8501"),
+            "DEPLOYMENT_ENV": "aws",
+            "INVESTIGATION_DDB_TABLE": DDB_TABLE_NAME,
+            "BEDROCK_REGION": REGION,
+            "BEDROCK_MODEL_ID": os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6"),
+            "BEDROCK_GUARDRAIL_ID": os.getenv("BEDROCK_GUARDRAIL_ID", ""),
+            "BEDROCK_GUARDRAIL_VERSION": os.getenv("BEDROCK_GUARDRAIL_VERSION", "DRAFT"),
+            "LLM_REQUIRE_GUARDRAIL": "true",
+            "API_AUTH_TOKEN": API_AUTH_TOKEN,
+        }
+    }
     try:
         response = client.create_function(
             FunctionName=LAMBDA_FUNCTION_NAME,
@@ -95,12 +146,18 @@ def ensure_lambda_function(role_arn: str) -> str:
             Description="FastAPI manufacturing investigation API (task #17/#26).",
             Timeout=30,
             MemorySize=1024,
-            Environment={"Variables": {"CORS_ORIGINS": "*"}},
+            Environment=environment,
         )
         print(f"created function {response['FunctionArn']}")
         return response["FunctionArn"]
     except client.exceptions.ResourceConflictException:
         client.update_function_code(FunctionName=LAMBDA_FUNCTION_NAME, ImageUri=ECR_URI)
+        client.update_function_configuration(
+            FunctionName=LAMBDA_FUNCTION_NAME,
+            Timeout=30,
+            MemorySize=1024,
+            Environment=environment,
+        )
         response = client.get_function(FunctionName=LAMBDA_FUNCTION_NAME)
         print(f"updated function {response['Configuration']['FunctionArn']}")
         return response["Configuration"]["FunctionArn"]
@@ -163,8 +220,11 @@ def get_api_endpoint(api_id: str) -> str:
 
 
 if __name__ == "__main__":
+    if not API_AUTH_TOKEN:
+        raise SystemExit("Set API_AUTH_TOKEN before deploying a public API.")
     role_arn = ensure_lambda_role()
     ensure_ecr_repo()
+    ensure_investigation_table()
     push_image()
     lambda_arn = ensure_lambda_function(role_arn)
     wait_lambda_active()

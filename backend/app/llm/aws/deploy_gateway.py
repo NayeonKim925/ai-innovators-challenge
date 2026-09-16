@@ -7,6 +7,7 @@ Run: python backend/app/llm/aws/deploy_gateway.py
 from __future__ import annotations
 
 import json
+import os
 import time
 import zipfile
 from pathlib import Path
@@ -22,6 +23,7 @@ GATEWAY_NAME = "mfg-investigation-gateway"
 
 sts = boto3.client("sts", region_name=REGION)
 ACCOUNT_ID = sts.get_caller_identity()["Account"]
+DDB_TABLE_NAME = os.getenv("INVESTIGATION_DDB_TABLE", "mfg-investigations")
 
 
 def _zip_handler() -> bytes:
@@ -54,6 +56,22 @@ def ensure_lambda_role() -> str:
         RoleName=LAMBDA_ROLE_NAME,
         PolicyArn="arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
     )
+    iam.put_role_policy(
+        RoleName=LAMBDA_ROLE_NAME,
+        PolicyName="ReadInvestigationResults",
+        PolicyDocument=json.dumps(
+            {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["dynamodb:GetItem"],
+                        "Resource": f"arn:aws:dynamodb:{REGION}:{ACCOUNT_ID}:table/{DDB_TABLE_NAME}",
+                    }
+                ],
+            }
+        ),
+    )
     return role_arn
 
 
@@ -69,12 +87,19 @@ def ensure_lambda_function(role_arn: str) -> str:
             Code={"ZipFile": zip_bytes},
             Description="ADR-0002 fallback tool handler for the AgentCore Gateway (task #13).",
             Timeout=10,
+            Environment={"Variables": {"INVESTIGATION_DDB_TABLE": DDB_TABLE_NAME, "AWS_REGION": REGION}},
             Publish=True,
         )
         print(f"created function {response['FunctionArn']}")
         return response["FunctionArn"]
     except client.exceptions.ResourceConflictException:
         client.update_function_code(FunctionName=LAMBDA_FUNCTION_NAME, ZipFile=zip_bytes, Publish=True)
+        client.update_function_configuration(
+            FunctionName=LAMBDA_FUNCTION_NAME,
+            Environment={
+                "Variables": {"INVESTIGATION_DDB_TABLE": DDB_TABLE_NAME, "AWS_REGION": REGION}
+            },
+        )
         response = client.get_function(FunctionName=LAMBDA_FUNCTION_NAME)
         print(f"updated function {response['Configuration']['FunctionArn']}")
         return response["Configuration"]["FunctionArn"]

@@ -6,46 +6,69 @@ import os
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from .data.runtime_repository import JsonRuntimeRepository
 from .domain import (
+    ChatRequest,
     DatasetName,
     InvestigationReport,
     InvestigationRequest,
     ReviewDecision,
     StoredReview,
 )
-from .repositories.investigations import InMemoryInvestigationRepository, InvestigationNotFoundError
-from .services.investigations import run_investigation
+from .repositories.investigation_store import (
+    InvestigationRepository,
+    build_investigation_repository,
+)
+from .repositories.investigations import InvestigationNotFoundError
+from .services.investigations import answer_question, run_investigation
 
 
 def create_app(
     repository: JsonRuntimeRepository | None = None,
-    investigations: InMemoryInvestigationRepository | None = None,
+    investigations: InvestigationRepository | None = None,
 ) -> FastAPI:
     app = FastAPI(
         title="Manufacturing Investigation API",
-        version="0.1.0",
-        description="Local research MVP. It does not control manufacturing equipment.",
+        version="0.2.0",
+        description="Evidence-linked incident investigation service. It does not control equipment.",
     )
     app.state.repository = repository or JsonRuntimeRepository()
-    # Process-lifetime store for investigation results and expert reviews
-    # (2-A). See backend/app/repositories/investigations.py for why this is
-    # in-memory rather than a database at this stage.
-    app.state.investigations = investigations or InMemoryInvestigationRepository()
+    app.state.investigations = investigations or build_investigation_repository()
     origins = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
         allow_methods=["GET", "POST"],
-        allow_headers=["Content-Type"],
+        allow_headers=["Content-Type", "Authorization"],
     )
+
+    def require_api_token(authorization: str | None) -> None:
+        """Protect stateful/LLM endpoints when deployed publicly.
+
+        Local development remains frictionless when ``API_AUTH_TOKEN`` is not
+        set.  Production deployment should always set it through a secret,
+        never through the browser bundle or a committed file.
+        """
+        expected = os.getenv("API_AUTH_TOKEN")
+        if not expected:
+            if os.getenv("DEPLOYMENT_ENV", "local-research") != "local-research":
+                raise HTTPException(status_code=503, detail="API authentication is not configured")
+            return
+        if authorization != f"Bearer {expected}":
+            raise HTTPException(status_code=401, detail="Valid API bearer token required")
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
-        return {"status": "ok", "mode": "deterministic", "deployment": "local-research"}
+        storage = "dynamodb" if os.getenv("INVESTIGATION_DDB_TABLE") else "in_memory"
+        return {
+            "status": "ok",
+            "mode": "deterministic",
+            "deployment": os.getenv("DEPLOYMENT_ENV", "local-research"),
+            "storage": storage,
+        }
 
     @app.get("/api/datasets")
     def datasets() -> dict[str, list[dict[str, object]]]:
@@ -74,7 +97,12 @@ def create_app(
         return incident.model_dump(mode="json")
 
     @app.post("/api/incidents/{incident_id}/investigations")
-    def create_investigation(incident_id: str, body: InvestigationRequest) -> dict[str, object]:
+    def create_investigation(
+        incident_id: str,
+        body: InvestigationRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_api_token(authorization)
         incident = app.state.repository.get_incident(incident_id)
         if incident is None:
             raise HTTPException(status_code=404, detail="Incident not found")
@@ -89,14 +117,23 @@ def create_app(
         return {"investigation_id": investigation_id, **result.model_dump(mode="json")}
 
     @app.get("/api/investigations/{investigation_id}")
-    def get_investigation(investigation_id: str) -> dict[str, object]:
+    def get_investigation(
+        investigation_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_api_token(authorization)
         result = app.state.investigations.get(investigation_id)
         if result is None:
             raise HTTPException(status_code=404, detail="Investigation not found")
         return {"investigation_id": investigation_id, **result.model_dump(mode="json")}
 
     @app.post("/api/investigations/{investigation_id}/reviews")
-    def create_review(investigation_id: str, body: ReviewDecision) -> dict[str, object]:
+    def create_review(
+        investigation_id: str,
+        body: ReviewDecision,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_api_token(authorization)
         review = StoredReview(
             investigation_id=investigation_id,
             decision=body.decision,
@@ -111,7 +148,11 @@ def create_app(
         return review.model_dump(mode="json")
 
     @app.get("/api/investigations/{investigation_id}/report")
-    def get_report(investigation_id: str) -> dict[str, object]:
+    def get_report(
+        investigation_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_api_token(authorization)
         result = app.state.investigations.get(investigation_id)
         if result is None:
             raise HTTPException(status_code=404, detail="Investigation not found")
@@ -122,6 +163,18 @@ def create_app(
             reviews=reviews,
         )
         return report.model_dump(mode="json")
+
+    @app.post("/api/investigations/{investigation_id}/chat")
+    def chat(
+        investigation_id: str,
+        body: ChatRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_api_token(authorization)
+        result = app.state.investigations.get(investigation_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Investigation not found")
+        return answer_question(result, body.question).model_dump(mode="json")
 
     return app
 

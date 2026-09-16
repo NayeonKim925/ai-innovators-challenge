@@ -1,20 +1,20 @@
 [
   {
     "name": "get_root_cause_ranking",
-    "description": "Repackages the top-k root-cause candidates from an already-computed investigation_result (produced by backend/app/workflows/investigation.py). Never recomputes candidates or scores.",
+    "description": "Reads the verified investigation result identified by investigation_id from durable API storage and returns its top-k candidates. Never accepts caller-supplied candidates or scores.",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "investigation_result": {
-          "type": "object",
-          "description": "The InvestigationResult JSON produced by POST /api/incidents/{id}/investigations."
+        "investigation_id": {
+          "type": "string",
+          "description": "Opaque investigation ID returned by POST /api/incidents/{id}/investigations."
         },
         "top_k": {
           "type": "integer",
           "description": "Maximum number of candidates to return (default 3)."
         }
       },
-      "required": ["investigation_result"]
+      "required": ["investigation_id"]
     }
   },
   {

@@ -20,11 +20,20 @@
 
 from __future__ import annotations
 
+import logging
 import time
 
 from ..domain import InvestigationResult, TraceEvent
-from .bedrock_client import BedrockUnavailable, bedrock_model_id, build_client
+from .bedrock_client import (
+    BedrockUnavailable,
+    GuardrailBlocked,
+    apply_guardrail,
+    bedrock_model_id,
+    build_client,
+)
 from .tools import get_fault_reference, summarize_candidates
+
+LOGGER = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """당신은 반도체/제조 설비 이상 알람을 조사하는 보조 엔지니어입니다.
 
@@ -39,28 +48,37 @@ SYSTEM_PROMPT = """당신은 반도체/제조 설비 이상 알람을 조사하�
   담당 엔지니어의 몫이라고 명시하세요.
 - status가 "inconclusive"인 후보는 근거가 불충분하다는 사실을 그대로 밝히세요.
 - 참고 배경지식은 AI가 정리한 일반 지식이며 검증된 매뉴얼이 아니라고 명시하세요.
-- 2~4문단의 짧은 한국어 요약으로 작성하세요. 표나 긴 목록은 만들지 마세요.
+- 사용자의 질문이 있으면 입력된 후보와 근거 범위 안에서만 답하고, 데이터가 부족하면
+  추가로 확인해야 할 관측값을 제안하세요. 설비를 조작하는 명령은 만들지 마세요.
+- 답변에서 사용하는 근거는 반드시 입력된 `E...` 근거 ID를 대괄호로 표시하세요.
+- 2~4문단의 짧은 한국어 답변으로 작성하세요. 표나 긴 목록은 만들지 마세요.
 """
 
 
 def _build_prompt(result: InvestigationResult) -> str:
     summary = summarize_candidates(result.candidates, result.evidence)
-    references = [
-        get_fault_reference(candidate["signal"]) for candidate in summary["candidates"]
-    ]
     lines = [
         f"사건 ID: {result.incident_id} (데이터셋: {result.dataset.value})",
         f"진단 시점(cutoff): {result.diagnosis_time}",
+        f"사용자 질문: {result.question or '(질문 없음)'}",
         "",
         "결정론적 분석 결과(순위/근거는 이미 계산됨, 절대 바꾸지 말 것):",
     ]
-    for candidate, reference in zip(result.candidates[: len(summary["candidates"])], references):
+    for candidate in summary["candidates"]:
         lines.append(
-            f"- 순위 {candidate.rank}: {candidate.signal} (status={candidate.status}) "
-            f"— {candidate.reason}"
+            f"- 순위 {candidate['rank']}: {candidate['signal']} "
+            f"(status={candidate['status']}) — {candidate['reason']}"
         )
+        for evidence in candidate["evidence"]:
+            lines.append(
+                f"  근거 {evidence['id']}: {evidence['title']} | {evidence['detail']} | 출처={evidence['source']}"
+            )
+        reference = get_fault_reference(candidate["signal"])
         if reference.get("found"):
-            lines.append(f"  참고 배경지식: {reference['role']} (흔한 원인: {reference['common_causes']})")
+            lines.append(
+                f"  참고 배경지식(권위 문서 아님): {reference['role']} "
+                f"(흔한 원인: {reference['common_causes']})"
+            )
     if not result.candidates:
         lines.append("(원인후보가 산출되지 않았습니다. 판단 보류 상태입니다.)")
     return "\n".join(lines)
@@ -72,14 +90,28 @@ def generate_narrative(result: InvestigationResult) -> tuple[str | None, TraceEv
     latency_ms는 실제로 측정된 값으로 채운다."""
     started = time.monotonic()
     try:
+        prompt = _build_prompt(result)
+        apply_guardrail(prompt, "INPUT")
         client = build_client()
         response = client.messages.create(
             model=bedrock_model_id(),
             max_tokens=800,
             system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": _build_prompt(result)}],
+            messages=[{"role": "user", "content": prompt}],
         )
         narrative = "".join(block.text for block in response.content if block.type == "text")
+        apply_guardrail(narrative, "OUTPUT")
+        evidence_ids = {
+            evidence_id for candidate in result.candidates for evidence_id in candidate.evidence_ids
+        }
+        if evidence_ids and not any(f"[{evidence_id}]" in narrative for evidence_id in evidence_ids):
+            return None, TraceEvent(
+                step=5,
+                tool="bedrock_narrative_unverified",
+                detail="The LLM response did not cite a verified evidence ID; deterministic output was preserved.",
+                latency_ms=round((time.monotonic() - started) * 1000, 1),
+                token_usage=None,
+            )
         latency_ms = (time.monotonic() - started) * 1000
         token_usage = None
         usage = getattr(response, "usage", None)
@@ -92,21 +124,32 @@ def generate_narrative(result: InvestigationResult) -> tuple[str | None, TraceEv
             latency_ms=round(latency_ms, 1),
             token_usage=token_usage,
         )
-    except BedrockUnavailable as exc:
+    except GuardrailBlocked:
+        latency_ms = (time.monotonic() - started) * 1000
+        return None, TraceEvent(
+            step=5,
+            tool="bedrock_guardrail_blocked",
+            detail="The configured Guardrail blocked the narrative request or response.",
+            latency_ms=round(latency_ms, 1),
+            token_usage=None,
+        )
+    except BedrockUnavailable:
+        LOGGER.warning("Bedrock narrative unavailable", exc_info=True)
         latency_ms = (time.monotonic() - started) * 1000
         return None, TraceEvent(
             step=5,
             tool="bedrock_llm_narrative",
-            detail=f"LLM narrative unavailable, falling back to deterministic-only mode: {exc}",
+            detail="LLM narrative unavailable; deterministic result was preserved.",
             latency_ms=round(latency_ms, 1),
             token_usage=None,
         )
     except Exception as exc:  # Never let an LLM failure break the request.
+        LOGGER.exception("Unexpected Bedrock narrative failure: %s", type(exc).__name__)
         latency_ms = (time.monotonic() - started) * 1000
         return None, TraceEvent(
             step=5,
             tool="bedrock_llm_narrative",
-            detail=f"LLM call failed, falling back to deterministic-only mode: {type(exc).__name__}: {exc}",
+            detail="LLM call failed; deterministic result was preserved.",
             latency_ms=round(latency_ms, 1),
             token_usage=None,
         )

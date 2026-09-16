@@ -11,7 +11,7 @@ has already run inside `investigate()`.
 
 from __future__ import annotations
 
-from ..domain import Incident, InvestigationResult
+from ..domain import ChatResponse, Incident, InvestigationResult
 from ..llm.explainer import generate_narrative
 from ..workflows.investigation import investigate
 
@@ -34,9 +34,68 @@ def run_investigation(
     result = investigate(incident, diagnosis_time, question)
     if not include_llm_narrative:
         return result
+    if not any(candidate.status == "candidate" for candidate in result.candidates):
+        from ..domain import TraceEvent
+
+        return result.model_copy(
+            update={
+                "trace": [
+                    *result.trace,
+                    TraceEvent(
+                        step=5,
+                        tool="bedrock_llm_narrative_skipped",
+                        detail="No verified candidate existed, so the LLM was not called.",
+                    ),
+                ]
+            }
+        )
     narrative, trace_event = generate_narrative(result)
     updates: dict[str, object] = {"trace": [*result.trace, trace_event]}
     if narrative is not None:
         updates["mode"] = "deterministic_with_llm_narrative"
         updates["llm_narrative"] = narrative
     return result.model_copy(update=updates)
+
+
+def answer_question(result: InvestigationResult, question: str) -> ChatResponse:
+    """Answer a follow-up question using only the stored investigation context."""
+
+    contextual = result.model_copy(update={"question": question})
+    if not any(candidate.status == "candidate" for candidate in result.candidates):
+        from ..domain import TraceEvent
+
+        return ChatResponse(
+            answer=(
+                "현재 조사 결과에는 검증된 원인 후보가 없습니다. 질문에 답하려면 "
+                "추가 관측값이나 해당 시점의 공정 기록이 필요합니다."
+            ),
+            trace=TraceEvent(
+                step=5,
+                tool="bedrock_llm_narrative_skipped",
+                detail="No verified candidate existed, so the chat request was answered deterministically.",
+            ),
+        )
+    narrative, trace_event = generate_narrative(contextual)
+    grounded_ids = [eid for candidate in result.candidates for eid in candidate.evidence_ids]
+    if narrative:
+        return ChatResponse(
+            answer=narrative,
+            grounded_evidence_ids=grounded_ids,
+            trace=trace_event,
+        )
+    if not result.candidates:
+        answer = (
+            "현재 조사 결과에는 검증된 원인 후보가 없습니다. 질문에 답하려면 "
+            "추가 관측값이나 해당 시점의 공정 기록이 필요합니다."
+        )
+    else:
+        signals = ", ".join(candidate.signal for candidate in result.candidates)
+        answer = (
+            f"현재 조사에서 확인된 후보는 {signals}입니다. "
+            "LLM 답변은 생성되지 않았으므로 각 후보의 근거와 실제 공정 기록을 전문가가 확인하세요."
+        )
+    return ChatResponse(
+        answer=answer,
+        grounded_evidence_ids=grounded_ids,
+        trace=trace_event,
+    )

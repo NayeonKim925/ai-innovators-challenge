@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pytest
 from app.domain import DatasetName, InvestigationResult, TraceEvent
-from app.llm.explainer import generate_narrative
+from app.llm.explainer import _build_prompt, generate_narrative
 from app.llm.tools import get_fault_reference, summarize_candidates
 
 
@@ -58,6 +58,27 @@ def test_summarize_candidates_only_repackages_existing_data() -> None:
     assert summary["candidates"][0]["evidence"][0]["title"] == "t"
 
 
+def test_prompt_contains_question_and_evidence() -> None:
+    from app.domain import Candidate, Evidence
+
+    result = InvestigationResult(
+        incident_id="case_1",
+        dataset=DatasetName.CAUSRCA,
+        diagnosis_time=5,
+        question="왜 먼저 확인하나요?",
+        candidates=[Candidate(rank=1, signal="P101", reason="recent alarm", evidence_ids=["E1"])],
+        evidence=[Evidence(id="E1", title="Alarm", detail="P101 at t=2", source="runtime")],
+        trace=[],
+        warnings=[],
+        next_action="check",
+    )
+
+    prompt = _build_prompt(result)
+    assert "왜 먼저 확인하나요?" in prompt
+    assert "E1" in prompt
+    assert "P101 at t=2" in prompt
+
+
 def test_generate_narrative_falls_back_gracefully_when_bedrock_call_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -78,4 +99,47 @@ def test_generate_narrative_falls_back_gracefully_when_bedrock_call_fails(
     assert trace_event.tool == "bedrock_llm_narrative"
     assert trace_event.latency_ms is not None
     assert trace_event.latency_ms >= 0
-    assert "forced for test" in trace_event.detail
+    assert "deterministic result was preserved" in trace_event.detail
+
+
+def test_generate_narrative_applies_guardrail_to_input_and_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.domain import Candidate, Evidence
+
+    class TextBlock:
+        type = "text"
+        text = "[E1] 근거에 연결된 후보입니다."
+
+    class FakeResponse:
+        content = [TextBlock()]
+        usage = type("Usage", (), {"input_tokens": 10, "output_tokens": 8})()
+
+    class FakeMessages:
+        def create(self, **_: object) -> FakeResponse:
+            return FakeResponse()
+
+    class FakeClient:
+        messages = FakeMessages()
+
+    result = InvestigationResult(
+        incident_id="case_1",
+        dataset=DatasetName.CAUSRCA,
+        diagnosis_time=5,
+        candidates=[Candidate(rank=1, signal="P101", reason="alarm", evidence_ids=["E1"])],
+        evidence=[Evidence(id="E1", title="Alarm", detail="P101 at t=2", source="runtime")],
+        trace=[],
+        warnings=[],
+        next_action="check",
+    )
+    calls: list[str] = []
+    import app.llm.explainer as explainer_module
+
+    monkeypatch.setattr(explainer_module, "build_client", lambda: FakeClient())
+    monkeypatch.setattr(explainer_module, "apply_guardrail", lambda _text, source: calls.append(source))
+
+    narrative, trace_event = generate_narrative(result)
+
+    assert narrative == "[E1] 근거에 연결된 후보입니다."
+    assert calls == ["INPUT", "OUTPUT"]
+    assert trace_event.token_usage == 18

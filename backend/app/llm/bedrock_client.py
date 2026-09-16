@@ -36,6 +36,10 @@ class BedrockUnavailable(RuntimeError):
     """
 
 
+class GuardrailBlocked(RuntimeError):
+    """Raised when the configured Bedrock Guardrail rejects input or output."""
+
+
 def bedrock_region() -> str:
     return os.getenv("BEDROCK_REGION", "us-east-1")
 
@@ -47,10 +51,38 @@ def bedrock_model_id() -> str:
     return os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
 
 
-def build_client() -> "AnthropicBedrock":
+def build_client() -> AnthropicBedrock:
     if not _ANTHROPIC_AVAILABLE:
         raise BedrockUnavailable("The 'anthropic' package is not installed.")
     try:
         return AnthropicBedrock(aws_region=bedrock_region())
     except Exception as exc:  # credentials, region misconfiguration, etc.
         raise BedrockUnavailable(f"Failed to construct Bedrock client: {exc}") from exc
+
+
+def apply_guardrail(text: str, source: str) -> None:
+    """Validate text with the configured Guardrail, if one is configured.
+
+    The guardrail is deliberately an independent API call so the same policy
+    can protect both direct Bedrock calls and future AgentCore/chat paths.
+    """
+    guardrail_id = os.getenv("BEDROCK_GUARDRAIL_ID")
+    guardrail_version = os.getenv("BEDROCK_GUARDRAIL_VERSION", "DRAFT")
+    if not guardrail_id:
+        if os.getenv("LLM_REQUIRE_GUARDRAIL", "false").lower() == "true":
+            raise BedrockUnavailable("A Bedrock Guardrail is required but not configured")
+        return
+    try:
+        import boto3
+
+        client = boto3.client("bedrock-runtime", region_name=bedrock_region())
+        response = client.apply_guardrail(
+            guardrailIdentifier=guardrail_id,
+            guardrailVersion=guardrail_version,
+            source=source,
+            content=[{"text": {"text": text}}],
+        )
+    except Exception as exc:
+        raise BedrockUnavailable("Guardrail could not be evaluated") from exc
+    if response.get("action") == "GUARDRAIL_INTERVENED":
+        raise GuardrailBlocked("Guardrail blocked the request")

@@ -34,7 +34,7 @@ def validate_request(state: InvestigationState) -> dict:
             TraceEvent(
                 step=1,
                 tool="validate_request",
-                detail="Validated incident identifier and explicit diagnosis cutoff. The question is recorded, not executed.",
+                detail="Validated incident identifier and explicit diagnosis cutoff.",
             )
         ],
     }
@@ -171,6 +171,7 @@ def investigate(incident: Incident, diagnosis_time: float, question: str = "") -
         incident_id=incident.id,
         dataset=incident.source_dataset,
         diagnosis_time=diagnosis_time,
+        question=question,
         candidates=candidates,
         evidence=state["evidence"],
         trace=state["trace"],
