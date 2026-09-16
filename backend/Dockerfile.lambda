@@ -7,6 +7,7 @@ WORKDIR ${LAMBDA_TASK_ROOT}
 
 COPY backend/app ./app
 COPY backend/lambda_handler.py ./lambda_handler.py
+COPY backend/llm_job_handler.py ./llm_job_handler.py
 
 # Metal Etch uses a lightweight PCA path in the request. Install its runtime
 # dependencies so the API does not report a dataset as ready while silently

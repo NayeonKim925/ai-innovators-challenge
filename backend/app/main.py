@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from .data.runtime_repository import JsonRuntimeRepository
 from .domain import (
@@ -15,15 +16,22 @@ from .domain import (
     DatasetName,
     InvestigationReport,
     InvestigationRequest,
+    LLMStatus,
     ReviewDecision,
     StoredReview,
 )
+from .llm.bedrock_client import bedrock_model_id, llm_timeout_s
 from .repositories.investigation_store import (
     InvestigationRepository,
     build_investigation_repository,
 )
 from .repositories.investigations import InvestigationNotFoundError
 from .services.investigations import answer_question, run_investigation
+from .services.narrative_jobs import (
+    NarrativeQueueUnavailable,
+    enqueue_narrative_job,
+    mark_queued,
+)
 
 
 def create_app(
@@ -33,7 +41,9 @@ def create_app(
     app = FastAPI(
         title="Manufacturing Investigation API",
         version="0.2.0",
-        description="Evidence-linked incident investigation service. It does not control equipment.",
+        description=(
+            "Evidence-linked incident investigation service. It does not control equipment."
+        ),
     )
     app.state.repository = repository or JsonRuntimeRepository()
     app.state.investigations = investigations or build_investigation_repository()
@@ -61,13 +71,19 @@ def create_app(
             raise HTTPException(status_code=401, detail="Valid API bearer token required")
 
     @app.get("/api/health")
-    def health() -> dict[str, str]:
+    def health() -> dict[str, object]:
         storage = "dynamodb" if os.getenv("INVESTIGATION_DDB_TABLE") else "in_memory"
+        guardrail_configured = bool(os.getenv("BEDROCK_GUARDRAIL_ID"))
+        llm_configured = bool(os.getenv("BEDROCK_MODEL_ID"))
         return {
             "status": "ok",
             "mode": "deterministic",
             "deployment": os.getenv("DEPLOYMENT_ENV", "local-research"),
             "storage": storage,
+            "llm_provider": "bedrock" if llm_configured else "not_configured",
+            "llm_model": bedrock_model_id() if llm_configured else "",
+            "llm_timeout_s": llm_timeout_s(),
+            "guardrail_configured": guardrail_configured,
         }
 
     @app.get("/api/datasets")
@@ -106,14 +122,51 @@ def create_app(
         incident = app.state.repository.get_incident(incident_id)
         if incident is None:
             raise HTTPException(status_code=404, detail="Incident not found")
+        if body.async_llm_narrative and not body.include_llm_narrative:
+            raise HTTPException(
+                status_code=422,
+                detail="async_llm_narrative requires include_llm_narrative=true",
+            )
         try:
             result = run_investigation(
-                incident, body.diagnosis_time, body.question, body.include_llm_narrative
+                incident,
+                body.diagnosis_time,
+                body.question,
+                False if body.async_llm_narrative else body.include_llm_narrative,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         investigation_id = uuid.uuid4().hex
         app.state.investigations.save(investigation_id, result)
+        if body.async_llm_narrative:
+            if not any(candidate.status == "candidate" for candidate in result.candidates):
+                skipped = run_investigation(
+                    incident, body.diagnosis_time, body.question, True
+                )
+                app.state.investigations.replace(investigation_id, skipped)
+                return {"investigation_id": investigation_id, **skipped.model_dump(mode="json")}
+            queued = mark_queued(result)
+            # Persist the queued state before publishing the message. A fast
+            # worker may consume the message immediately after send_message.
+            app.state.investigations.replace(investigation_id, queued)
+            try:
+                enqueue_narrative_job(investigation_id)
+                result = queued
+            except NarrativeQueueUnavailable as exc:
+                failed = queued.model_copy(update={"llm_status": LLMStatus.UNAVAILABLE})
+                app.state.investigations.replace(investigation_id, failed)
+                detail = {
+                    "message": (
+                        "Deterministic investigation was saved, but the LLM job queue "
+                        "is unavailable."
+                    ),
+                    "investigation_id": investigation_id,
+                }
+                raise HTTPException(status_code=503, detail=detail) from exc
+            return JSONResponse(
+                status_code=202,
+                content={"investigation_id": investigation_id, **result.model_dump(mode="json")},
+            )
         return {"investigation_id": investigation_id, **result.model_dump(mode="json")}
 
     @app.get("/api/investigations/{investigation_id}")

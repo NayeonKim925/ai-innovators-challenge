@@ -40,6 +40,20 @@ class GuardrailBlocked(RuntimeError):
     """Raised when the configured Bedrock Guardrail rejects input or output."""
 
 
+def llm_timeout_s() -> float:
+    """Return a bounded timeout for every remote LLM/Guardrail call.
+
+    A bad environment value must not accidentally turn a user request into an
+    unbounded connection. The upper bound also stays below the 30s Lambda
+    timeout used by the deployment script.
+    """
+    try:
+        configured = float(os.getenv("LLM_TIMEOUT_S", "8"))
+    except ValueError:
+        configured = 8.0
+    return max(1.0, min(configured, 20.0))
+
+
 def bedrock_region() -> str:
     return os.getenv("BEDROCK_REGION", "us-east-1")
 
@@ -55,7 +69,7 @@ def build_client() -> AnthropicBedrock:
     if not _ANTHROPIC_AVAILABLE:
         raise BedrockUnavailable("The 'anthropic' package is not installed.")
     try:
-        return AnthropicBedrock(aws_region=bedrock_region())
+        return AnthropicBedrock(aws_region=bedrock_region(), timeout=llm_timeout_s())
     except Exception as exc:  # credentials, region misconfiguration, etc.
         raise BedrockUnavailable(f"Failed to construct Bedrock client: {exc}") from exc
 
@@ -75,7 +89,17 @@ def apply_guardrail(text: str, source: str) -> None:
     try:
         import boto3
 
-        client = boto3.client("bedrock-runtime", region_name=bedrock_region())
+        from botocore.config import Config
+
+        client = boto3.client(
+            "bedrock-runtime",
+            region_name=bedrock_region(),
+            config=Config(
+                connect_timeout=min(3.0, llm_timeout_s()),
+                read_timeout=min(5.0, llm_timeout_s()),
+                retries={"max_attempts": 1, "mode": "standard"},
+            ),
+        )
         response = client.apply_guardrail(
             guardrailIdentifier=guardrail_id,
             guardrailVersion=guardrail_version,

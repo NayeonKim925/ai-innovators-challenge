@@ -116,7 +116,10 @@ with st.sidebar:
     st.write(BACKEND_URL)
     health = _get("/api/health")
     if health:
-        st.success(f"status={health['status']} · mode={health['mode']}")
+        st.success(
+            f"status={health['status']} · mode={health['mode']} · "
+            f"LLM={health.get('llm_provider', 'unknown')}"
+        )
     else:
         st.warning("백엔드에 연결할 수 없습니다. FastAPI 서버가 실행 중인지 확인하세요.")
         st.code("uvicorn app.main:app --reload", language="bash")
@@ -189,6 +192,16 @@ with col_llm:
         help="체크하지 않으면 결정론적 분석만 실행됩니다. 체크해도 LLM이 "
         "새 원인후보를 만들거나 순위를 바꾸지 않습니다.",
     )
+    async_queue_enabled = bool(os.getenv("LLM_JOB_QUEUE_URL"))
+    async_llm_narrative = st.checkbox(
+        "비동기 LLM 요약(서비스 배포용)",
+        value=False,
+        disabled=not (include_llm_narrative and async_queue_enabled),
+        help=(
+            "결정론적 결과를 먼저 반환하고 LLM 요약은 작업 큐에서 생성합니다. "
+            "백엔드에 LLM_JOB_QUEUE_URL이 설정된 배포 환경에서만 사용할 수 있습니다."
+        ),
+    )
 
 if st.session_state.get("selected_incident_id") != selected_incident["id"]:
     st.session_state.selected_incident_id = selected_incident["id"]
@@ -206,6 +219,7 @@ if submit_investigation:
             "diagnosis_time": diagnosis_time,
             "question": question,
             "include_llm_narrative": include_llm_narrative,
+            "async_llm_narrative": async_llm_narrative,
         },
     )
     st.session_state.investigation = result
@@ -220,6 +234,12 @@ if investigation:
         f"조사 ID: `{investigation['investigation_id']}` · mode: `{investigation['mode']}` · "
         f"LLM 상태: `{investigation.get('llm_status', 'not_requested')}`"
     )
+    if investigation.get("llm_status") in {"queued", "running"}:
+        if st.button("AI 요약 상태 새로고침"):
+            refreshed = _get(f"/api/investigations/{investigation['investigation_id']}")
+            if refreshed:
+                st.session_state.investigation = refreshed
+                st.rerun()
 
     if investigation["warnings"]:
         for warning in investigation["warnings"]:

@@ -32,6 +32,11 @@ class InMemoryInvestigationRepository:
         self._results[investigation_id] = result
         self._reviews.setdefault(investigation_id, [])
 
+    def replace(self, investigation_id: str, result: InvestigationResult) -> None:
+        if investigation_id not in self._results:
+            raise InvestigationNotFoundError(investigation_id)
+        self._results[investigation_id] = result
+
     def get(self, investigation_id: str) -> InvestigationResult | None:
         return self._results.get(investigation_id)
 

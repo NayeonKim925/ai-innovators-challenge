@@ -15,6 +15,8 @@ class DatasetName(str, Enum):
 
 class LLMStatus(str, Enum):
     NOT_REQUESTED = "not_requested"
+    QUEUED = "queued"
+    RUNNING = "running"
     GENERATED = "generated"
     SKIPPED = "skipped"
     UNAVAILABLE = "unavailable"
@@ -104,6 +106,9 @@ class InvestigationRequest(BaseModel):
     # Default False (ADR-0002): the deterministic workflow must fully function
     # with no LLM configured. Callers opt in explicitly per request.
     include_llm_narrative: bool = False
+    # Production deployments can return the deterministic result immediately
+    # and generate the Bedrock narrative from a durable queue afterwards.
+    async_llm_narrative: bool = False
 
 
 class ChatRequest(BaseModel):

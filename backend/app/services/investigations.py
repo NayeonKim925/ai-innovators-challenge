@@ -68,6 +68,16 @@ def answer_question(result: InvestigationResult, question: str) -> ChatResponse:
     """Answer a follow-up question using only the stored investigation context."""
 
     contextual = result.model_copy(update={"question": question})
+    grounded_ids = [eid for candidate in result.candidates for eid in candidate.evidence_ids]
+    if result.llm_status in {LLMStatus.QUEUED, LLMStatus.RUNNING}:
+        return ChatResponse(
+            answer=(
+                "현재 결정론적 분석 결과는 준비되어 있지만 AI 요약을 생성하는 중입니다. "
+                "아래 근거를 먼저 확인하고 잠시 후 다시 질문해 주세요."
+            ),
+            grounded_evidence_ids=grounded_ids,
+            llm_status=result.llm_status,
+        )
     if not any(candidate.status == "candidate" for candidate in result.candidates):
         from ..domain import TraceEvent
 
@@ -84,7 +94,6 @@ def answer_question(result: InvestigationResult, question: str) -> ChatResponse:
             llm_status=LLMStatus.SKIPPED,
         )
     narrative, trace_event = generate_narrative(contextual)
-    grounded_ids = [eid for candidate in result.candidates for eid in candidate.evidence_ids]
     if narrative:
         return ChatResponse(
             answer=narrative,
@@ -106,6 +115,7 @@ def answer_question(result: InvestigationResult, question: str) -> ChatResponse:
     return ChatResponse(
         answer=answer,
         grounded_evidence_ids=grounded_ids,
+        blocked=trace_event.tool == "bedrock_guardrail_blocked",
         llm_status={
             "bedrock_guardrail_blocked": LLMStatus.BLOCKED,
             "bedrock_narrative_unverified": LLMStatus.UNVERIFIED,

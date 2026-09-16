@@ -19,6 +19,8 @@ from .investigations import InMemoryInvestigationRepository
 class InvestigationRepository(Protocol):
     def save(self, investigation_id: str, result: InvestigationResult) -> None: ...
 
+    def replace(self, investigation_id: str, result: InvestigationResult) -> None: ...
+
     def get(self, investigation_id: str) -> InvestigationResult | None: ...
 
     def add_review(self, investigation_id: str, review: StoredReview) -> StoredReview: ...
@@ -59,6 +61,22 @@ class DynamoInvestigationRepository:
         if not item:
             return None
         return InvestigationResult.model_validate_json(item["result_json"])
+
+    def replace(self, investigation_id: str, result: InvestigationResult) -> None:
+        try:
+            self._table.update_item(
+                Key={"investigation_id": investigation_id},
+                UpdateExpression="SET result_json = :result_json",
+                ConditionExpression="attribute_exists(investigation_id)",
+                ExpressionAttributeValues={":result_json": result.model_dump_json()},
+                ReturnValues="NONE",
+            )
+        except self._client_error as exc:
+            if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+                from .investigations import InvestigationNotFoundError
+
+                raise InvestigationNotFoundError(investigation_id) from exc
+            raise
 
     def add_review(self, investigation_id: str, review: StoredReview) -> StoredReview:
         try:

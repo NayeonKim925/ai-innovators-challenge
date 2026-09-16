@@ -18,8 +18,10 @@ ECR_REPO_NAME = "mfg-investigation-api"
 IMAGE_TAG = "latest"
 LOCAL_IMAGE = "mfg-investigation-api:latest"
 LAMBDA_FUNCTION_NAME = "mfg-investigation-api"
+WORKER_FUNCTION_NAME = "mfg-investigation-narrative-worker"
 LAMBDA_ROLE_NAME = "mfg-investigation-api-lambda-role"
 API_NAME = "mfg-investigation-api"
+LLM_JOB_QUEUE_NAME = os.getenv("LLM_JOB_QUEUE_NAME", "mfg-investigation-narrative-jobs")
 DDB_TABLE_NAME = os.getenv("INVESTIGATION_DDB_TABLE", "mfg-investigations")
 API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN", "")
 BEDROCK_MODEL_ARN = os.getenv("BEDROCK_MODEL_ARN", "")
@@ -30,6 +32,7 @@ sts = boto3.client("sts", region_name=REGION)
 ACCOUNT_ID = sts.get_caller_identity()["Account"]
 ECR_URI = f"{ACCOUNT_ID}.dkr.ecr.{REGION}.amazonaws.com/{ECR_REPO_NAME}:{IMAGE_TAG}"
 LAMBDA_ROLE_ARN = f"arn:aws:iam::{ACCOUNT_ID}:role/{LAMBDA_ROLE_NAME}"
+LLM_JOB_QUEUE_ARN = f"arn:aws:sqs:{REGION}:{ACCOUNT_ID}:{LLM_JOB_QUEUE_NAME}"
 
 
 def ensure_lambda_role() -> str:
@@ -37,7 +40,11 @@ def ensure_lambda_role() -> str:
     trust_policy = {
         "Version": "2012-10-17",
         "Statement": [
-            {"Effect": "Allow", "Principal": {"Service": "lambda.amazonaws.com"}, "Action": "sts:AssumeRole"}
+            {
+                "Effect": "Allow",
+                "Principal": {"Service": "lambda.amazonaws.com"},
+                "Action": "sts:AssumeRole",
+            }
         ],
     }
     try:
@@ -74,7 +81,19 @@ def ensure_lambda_role() -> str:
                     {
                         "Effect": "Allow",
                         "Action": ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"],
-                        "Resource": f"arn:aws:dynamodb:{REGION}:{ACCOUNT_ID}:table/{DDB_TABLE_NAME}",
+                        "Resource": (
+                            f"arn:aws:dynamodb:{REGION}:{ACCOUNT_ID}:table/{DDB_TABLE_NAME}"
+                        ),
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "sqs:SendMessage",
+                            "sqs:ReceiveMessage",
+                            "sqs:DeleteMessage",
+                            "sqs:GetQueueAttributes",
+                        ],
+                        "Resource": LLM_JOB_QUEUE_ARN,
                     },
                 ],
             }
@@ -111,6 +130,20 @@ def ensure_investigation_table() -> None:
     print(f"DynamoDB table {DDB_TABLE_NAME} is ready")
 
 
+def ensure_job_queue() -> tuple[str, str]:
+    sqs = boto3.client("sqs", region_name=REGION)
+    response = sqs.create_queue(
+        QueueName=LLM_JOB_QUEUE_NAME,
+        Attributes={"VisibilityTimeout": "120", "ReceiveMessageWaitTimeSeconds": "10"},
+    )
+    queue_url = response["QueueUrl"]
+    attributes = sqs.get_queue_attributes(
+        QueueUrl=queue_url, AttributeNames=["QueueArn"]
+    )["Attributes"]
+    print(f"SQS narrative queue ready: {queue_url}")
+    return queue_url, attributes["QueueArn"]
+
+
 def push_image() -> None:
     login_password = subprocess.run(
         ["aws", "ecr", "get-login-password", "--region", REGION],
@@ -130,21 +163,25 @@ def push_image() -> None:
     print(f"pushed {ECR_URI}")
 
 
-def ensure_lambda_function(role_arn: str) -> str:
-    client = boto3.client("lambda", region_name=REGION)
-    environment = {
-        "Variables": {
-            "CORS_ORIGINS": os.getenv("CORS_ORIGINS", "http://localhost:8501"),
-            "DEPLOYMENT_ENV": "aws",
-            "INVESTIGATION_DDB_TABLE": DDB_TABLE_NAME,
-            "BEDROCK_REGION": REGION,
-            "BEDROCK_MODEL_ID": os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6"),
-            "BEDROCK_GUARDRAIL_ID": BEDROCK_GUARDRAIL_ID,
-            "BEDROCK_GUARDRAIL_VERSION": os.getenv("BEDROCK_GUARDRAIL_VERSION", "DRAFT"),
-            "LLM_REQUIRE_GUARDRAIL": "true",
-            "API_AUTH_TOKEN": API_AUTH_TOKEN,
-        }
+def _runtime_environment(queue_url: str) -> dict[str, str]:
+    return {
+        "CORS_ORIGINS": os.getenv("CORS_ORIGINS", "http://localhost:8501"),
+        "DEPLOYMENT_ENV": "aws",
+        "INVESTIGATION_DDB_TABLE": DDB_TABLE_NAME,
+        "LLM_JOB_QUEUE_URL": queue_url,
+        "BEDROCK_REGION": REGION,
+        "BEDROCK_MODEL_ID": os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6"),
+        "LLM_TIMEOUT_S": os.getenv("LLM_TIMEOUT_S", "8"),
+        "BEDROCK_GUARDRAIL_ID": BEDROCK_GUARDRAIL_ID,
+        "BEDROCK_GUARDRAIL_VERSION": os.getenv("BEDROCK_GUARDRAIL_VERSION", "DRAFT"),
+        "LLM_REQUIRE_GUARDRAIL": "true",
+        "API_AUTH_TOKEN": API_AUTH_TOKEN,
     }
+
+
+def ensure_lambda_function(role_arn: str, queue_url: str) -> str:
+    client = boto3.client("lambda", region_name=REGION)
+    environment = {"Variables": _runtime_environment(queue_url)}
     try:
         response = client.create_function(
             FunctionName=LAMBDA_FUNCTION_NAME,
@@ -171,6 +208,38 @@ def ensure_lambda_function(role_arn: str) -> str:
         return response["Configuration"]["FunctionArn"]
 
 
+def ensure_worker_function(role_arn: str, queue_url: str) -> str:
+    client = boto3.client("lambda", region_name=REGION)
+    environment = {"Variables": _runtime_environment(queue_url)}
+    image_config = {"Command": ["llm_job_handler.handler"]}
+    try:
+        response = client.create_function(
+            FunctionName=WORKER_FUNCTION_NAME,
+            PackageType="Image",
+            Code={"ImageUri": ECR_URI},
+            Role=role_arn,
+            Description="Durable Bedrock narrative worker for manufacturing investigations.",
+            Timeout=60,
+            MemorySize=1024,
+            Environment=environment,
+            ImageConfig=image_config,
+        )
+        print(f"created worker {response['FunctionArn']}")
+        return response["FunctionArn"]
+    except client.exceptions.ResourceConflictException:
+        client.update_function_code(FunctionName=WORKER_FUNCTION_NAME, ImageUri=ECR_URI)
+        client.update_function_configuration(
+            FunctionName=WORKER_FUNCTION_NAME,
+            Timeout=60,
+            MemorySize=1024,
+            Environment=environment,
+            ImageConfig=image_config,
+        )
+        response = client.get_function(FunctionName=WORKER_FUNCTION_NAME)
+        print(f"updated worker {response['Configuration']['FunctionArn']}")
+        return response["Configuration"]["FunctionArn"]
+
+
 def wait_lambda_active(timeout_s: int = 180) -> None:
     client = boto3.client("lambda", region_name=REGION)
     started = time.monotonic()
@@ -185,6 +254,38 @@ def wait_lambda_active(timeout_s: int = 180) -> None:
             raise SystemExit("Lambda function failed to become active")
         time.sleep(5)
     raise SystemExit("Timed out waiting for Lambda to become Active")
+
+
+def wait_worker_active(timeout_s: int = 180) -> None:
+    client = boto3.client("lambda", region_name=REGION)
+    started = time.monotonic()
+    while time.monotonic() - started < timeout_s:
+        response = client.get_function(FunctionName=WORKER_FUNCTION_NAME)
+        state = response["Configuration"]["State"]
+        print(f"worker state={state}")
+        if state == "Active":
+            return
+        if state == "Failed":
+            raise SystemExit("Narrative worker failed to become active")
+        time.sleep(5)
+    raise SystemExit("Timed out waiting for narrative worker to become Active")
+
+
+def ensure_worker_event_source(worker_arn: str, queue_arn: str) -> None:
+    lambda_client = boto3.client("lambda", region_name=REGION)
+    mappings = lambda_client.list_event_source_mappings(
+        EventSourceArn=queue_arn, FunctionName=WORKER_FUNCTION_NAME
+    )["EventSourceMappings"]
+    if mappings:
+        print("SQS event source mapping already exists")
+        return
+    lambda_client.create_event_source_mapping(
+        EventSourceArn=queue_arn,
+        FunctionName=worker_arn,
+        Enabled=True,
+        BatchSize=1,
+    )
+    print("created SQS event source mapping")
 
 
 def ensure_http_api(lambda_arn: str) -> str:
@@ -238,9 +339,13 @@ if __name__ == "__main__":
     role_arn = ensure_lambda_role()
     ensure_ecr_repo()
     ensure_investigation_table()
+    queue_url, queue_arn = ensure_job_queue()
     push_image()
-    lambda_arn = ensure_lambda_function(role_arn)
+    lambda_arn = ensure_lambda_function(role_arn, queue_url)
     wait_lambda_active()
+    worker_arn = ensure_worker_function(role_arn, queue_url)
+    wait_worker_active()
+    ensure_worker_event_source(worker_arn, queue_arn)
     api_id = ensure_http_api(lambda_arn)
     allow_apigw_to_invoke_lambda(api_id)
     endpoint = get_api_endpoint(api_id)

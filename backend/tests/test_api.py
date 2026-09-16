@@ -34,6 +34,17 @@ def test_api_lists_and_investigates_runtime_incident(tmp_path: Path) -> None:
     assert isinstance(body["investigation_id"], str) and body["investigation_id"]
 
 
+def test_health_exposes_runtime_safety_configuration(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("LLM_TIMEOUT_S", "999")
+    client = _client_with_prepared_incident(tmp_path)
+
+    body = client.get("/api/health").json()
+
+    assert body["storage"] == "in_memory"
+    assert body["llm_timeout_s"] == 20.0
+    assert body["guardrail_configured"] is False
+
+
 def test_api_investigation_review_and_report_roundtrip(tmp_path: Path) -> None:
     """2-A: POST investigations -> GET investigations/{id} -> POST reviews ->
     GET report must all round-trip through the same in-memory store."""
@@ -147,3 +158,52 @@ def test_api_investigation_with_llm_narrative_flag_falls_back_offline(
     assert body["mode"] == "deterministic"
     assert body["llm_narrative"] is None
     assert body["trace"][-1]["tool"] == "bedrock_llm_narrative"
+
+
+def test_api_async_narrative_returns_deterministic_result_immediately(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import app.main as main_module
+
+    monkeypatch.setattr(main_module, "enqueue_narrative_job", lambda _id: "message-1")
+    client = _client_with_prepared_incident(tmp_path)
+
+    response = client.post(
+        "/api/incidents/case_1/investigations",
+        json={
+            "diagnosis_time": 3,
+            "question": "왜 이 신호인가요?",
+            "include_llm_narrative": True,
+            "async_llm_narrative": True,
+        },
+    )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["llm_status"] == "queued"
+    assert body["candidates"][0]["signal"] == "P101"
+    stored = client.get(f"/api/investigations/{body['investigation_id']}").json()
+    assert stored["llm_status"] == "queued"
+
+
+def test_api_async_narrative_fails_closed_without_queue(tmp_path: Path, monkeypatch) -> None:
+    import app.main as main_module
+    from app.services.narrative_jobs import NarrativeQueueUnavailable
+
+    def _no_queue(_id: str) -> str:
+        raise NarrativeQueueUnavailable("forced")
+
+    monkeypatch.setattr(main_module, "enqueue_narrative_job", _no_queue)
+    client = _client_with_prepared_incident(tmp_path)
+
+    response = client.post(
+        "/api/incidents/case_1/investigations",
+        json={
+            "diagnosis_time": 3,
+            "include_llm_narrative": True,
+            "async_llm_narrative": True,
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["investigation_id"]
