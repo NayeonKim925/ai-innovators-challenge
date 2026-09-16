@@ -13,6 +13,15 @@ class DatasetName(str, Enum):
     METAL_ETCH = "metal_etch"
 
 
+class LLMStatus(str, Enum):
+    NOT_REQUESTED = "not_requested"
+    GENERATED = "generated"
+    SKIPPED = "skipped"
+    UNAVAILABLE = "unavailable"
+    BLOCKED = "blocked"
+    UNVERIFIED = "unverified"
+
+
 class Capability(str, Enum):
     TIME_SERIES = "time_series"
     MULTI_SOURCE_EVIDENCE = "multi_source_evidence"
@@ -109,6 +118,7 @@ class ChatResponse(BaseModel):
     answer: str
     grounded_evidence_ids: list[str] = Field(default_factory=list)
     blocked: bool = False
+    llm_status: LLMStatus = LLMStatus.NOT_REQUESTED
     trace: TraceEvent | None = None
 
 
@@ -131,6 +141,7 @@ class InvestigationResult(BaseModel):
     warnings: list[str]
     next_action: str
     llm_narrative: str | None = None
+    llm_status: LLMStatus = LLMStatus.NOT_REQUESTED
 
 
 class ReviewDecision(BaseModel):

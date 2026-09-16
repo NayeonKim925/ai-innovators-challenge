@@ -12,6 +12,7 @@ Run: python backend/app/llm/aws/deploy_agentcore.py
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 
@@ -22,6 +23,9 @@ AGENT_NAME = "mfg_investigation_explainer"
 ECR_REPO_NAME = "mfg-investigation-explainer"
 IMAGE_TAG = "latest"
 LOCAL_IMAGE = "mfg-investigation-explainer:latest"
+DDB_TABLE_NAME = os.getenv("INVESTIGATION_DDB_TABLE", "mfg-investigations")
+BEDROCK_MODEL_ARN = os.getenv("BEDROCK_MODEL_ARN", "")
+BEDROCK_GUARDRAIL_ARN = os.getenv("BEDROCK_GUARDRAIL_ARN", "")
 
 sts = boto3.client("sts", region_name=REGION)
 ACCOUNT_ID = sts.get_caller_identity()["Account"]
@@ -54,19 +58,55 @@ def ensure_role() -> None:
     except iam.exceptions.EntityAlreadyExistsException:
         print(f"role {ROLE_NAME} already exists")
 
-    # Scoped policy: invoke the same Claude model, plus what AgentCore Runtime
-    # itself needs (ECR pull, CloudWatch logs, Bedrock invoke).
-    iam.attach_role_policy(
-        RoleName=ROLE_NAME, PolicyArn="arn:aws:iam::aws:policy/AmazonBedrockFullAccess"
-    )
-    iam.attach_role_policy(
+    if not BEDROCK_MODEL_ARN or not BEDROCK_GUARDRAIL_ARN:
+        raise SystemExit(
+            "Set BEDROCK_MODEL_ARN and BEDROCK_GUARDRAIL_ARN before deploying AgentCore."
+        )
+    iam.put_role_policy(
         RoleName=ROLE_NAME,
-        PolicyArn="arn:aws:iam::aws:policy/CloudWatchLogsFullAccess",
+        PolicyName="mfg-investigation-agentcore-runtime-access",
+        PolicyDocument=json.dumps(
+            {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Action": ["bedrock:InvokeModel", "bedrock:ApplyGuardrail"],
+                        "Resource": [BEDROCK_MODEL_ARN, BEDROCK_GUARDRAIL_ARN],
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": ["dynamodb:GetItem"],
+                        "Resource": f"arn:aws:dynamodb:{REGION}:{ACCOUNT_ID}:table/{DDB_TABLE_NAME}",
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "logs:CreateLogGroup",
+                            "logs:CreateLogStream",
+                            "logs:PutLogEvents",
+                        ],
+                        "Resource": "*",
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": "ecr:GetAuthorizationToken",
+                        "Resource": "*",
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": [
+                            "ecr:BatchGetImage",
+                            "ecr:GetDownloadUrlForLayer",
+                            "ecr:BatchCheckLayerAvailability",
+                        ],
+                        "Resource": f"arn:aws:ecr:{REGION}:{ACCOUNT_ID}:repository/{ECR_REPO_NAME}",
+                    },
+                ],
+            }
+        ),
     )
-    iam.attach_role_policy(
-        RoleName=ROLE_NAME, PolicyArn="arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-    )
-    print("attached policies")
+    print("attached scoped runtime policy")
 
 
 def ensure_ecr_repo() -> None:

@@ -216,7 +216,10 @@ investigation = st.session_state.investigation
 if investigation:
     st.divider()
     st.subheader("3. 원인 후보와 근거")
-    st.caption(f"조사 ID: `{investigation['investigation_id']}` · mode: `{investigation['mode']}`")
+    st.caption(
+        f"조사 ID: `{investigation['investigation_id']}` · mode: `{investigation['mode']}` · "
+        f"LLM 상태: `{investigation.get('llm_status', 'not_requested')}`"
+    )
 
     if investigation["warnings"]:
         for warning in investigation["warnings"]:

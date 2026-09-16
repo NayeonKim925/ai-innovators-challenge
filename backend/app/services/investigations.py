@@ -11,7 +11,7 @@ has already run inside `investigate()`.
 
 from __future__ import annotations
 
-from ..domain import ChatResponse, Incident, InvestigationResult
+from ..domain import ChatResponse, Incident, InvestigationResult, LLMStatus
 from ..llm.explainer import generate_narrative
 from ..workflows.investigation import investigate
 
@@ -46,7 +46,8 @@ def run_investigation(
                         tool="bedrock_llm_narrative_skipped",
                         detail="No verified candidate existed, so the LLM was not called.",
                     ),
-                ]
+                ],
+                "llm_status": LLMStatus.SKIPPED,
             }
         )
     narrative, trace_event = generate_narrative(result)
@@ -54,6 +55,12 @@ def run_investigation(
     if narrative is not None:
         updates["mode"] = "deterministic_with_llm_narrative"
         updates["llm_narrative"] = narrative
+        updates["llm_status"] = LLMStatus.GENERATED
+    else:
+        updates["llm_status"] = {
+            "bedrock_guardrail_blocked": LLMStatus.BLOCKED,
+            "bedrock_narrative_unverified": LLMStatus.UNVERIFIED,
+        }.get(trace_event.tool, LLMStatus.UNAVAILABLE)
     return result.model_copy(update=updates)
 
 
@@ -74,6 +81,7 @@ def answer_question(result: InvestigationResult, question: str) -> ChatResponse:
                 tool="bedrock_llm_narrative_skipped",
                 detail="No verified candidate existed, so the chat request was answered deterministically.",
             ),
+            llm_status=LLMStatus.SKIPPED,
         )
     narrative, trace_event = generate_narrative(contextual)
     grounded_ids = [eid for candidate in result.candidates for eid in candidate.evidence_ids]
@@ -81,6 +89,7 @@ def answer_question(result: InvestigationResult, question: str) -> ChatResponse:
         return ChatResponse(
             answer=narrative,
             grounded_evidence_ids=grounded_ids,
+            llm_status=LLMStatus.GENERATED,
             trace=trace_event,
         )
     if not result.candidates:
@@ -97,5 +106,9 @@ def answer_question(result: InvestigationResult, question: str) -> ChatResponse:
     return ChatResponse(
         answer=answer,
         grounded_evidence_ids=grounded_ids,
+        llm_status={
+            "bedrock_guardrail_blocked": LLMStatus.BLOCKED,
+            "bedrock_narrative_unverified": LLMStatus.UNVERIFIED,
+        }.get(trace_event.tool, LLMStatus.UNAVAILABLE),
         trace=trace_event,
     )

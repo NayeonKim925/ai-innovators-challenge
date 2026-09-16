@@ -13,4 +13,9 @@ WORKDIR /app/backend/app/llm/aws
 
 EXPOSE 8080
 
+# The table name is deliberately stable and read-only for the AgentCore
+# runtime. Deployments can override it through the runtime configuration.
+ENV INVESTIGATION_DDB_TABLE=mfg-investigations
+ENV BEDROCK_REGION=us-east-1
+
 CMD ["python", "agentcore_main.py"]

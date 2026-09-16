@@ -22,6 +22,9 @@ LAMBDA_ROLE_NAME = "mfg-investigation-api-lambda-role"
 API_NAME = "mfg-investigation-api"
 DDB_TABLE_NAME = os.getenv("INVESTIGATION_DDB_TABLE", "mfg-investigations")
 API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN", "")
+BEDROCK_MODEL_ARN = os.getenv("BEDROCK_MODEL_ARN", "")
+BEDROCK_GUARDRAIL_ARN = os.getenv("BEDROCK_GUARDRAIL_ARN", "")
+BEDROCK_GUARDRAIL_ID = os.getenv("BEDROCK_GUARDRAIL_ID", "")
 
 sts = boto3.client("sts", region_name=REGION)
 ACCOUNT_ID = sts.get_caller_identity()["Account"]
@@ -60,11 +63,13 @@ def ensure_lambda_role() -> str:
                 "Statement": [
                     {
                         "Effect": "Allow",
-                        "Action": [
-                            "bedrock:InvokeModel",
-                            "bedrock:ApplyGuardrail",
-                        ],
-                        "Resource": "*",
+                        "Action": "bedrock:InvokeModel",
+                        "Resource": BEDROCK_MODEL_ARN,
+                    },
+                    {
+                        "Effect": "Allow",
+                        "Action": "bedrock:ApplyGuardrail",
+                        "Resource": BEDROCK_GUARDRAIL_ARN,
                     },
                     {
                         "Effect": "Allow",
@@ -101,6 +106,9 @@ def ensure_investigation_table() -> None:
             BillingMode="PAY_PER_REQUEST",
         )
         print(f"created DynamoDB table {DDB_TABLE_NAME}")
+    waiter = dynamodb.get_waiter("table_exists")
+    waiter.wait(TableName=DDB_TABLE_NAME, WaiterConfig={"Delay": 2, "MaxAttempts": 30})
+    print(f"DynamoDB table {DDB_TABLE_NAME} is ready")
 
 
 def push_image() -> None:
@@ -131,7 +139,7 @@ def ensure_lambda_function(role_arn: str) -> str:
             "INVESTIGATION_DDB_TABLE": DDB_TABLE_NAME,
             "BEDROCK_REGION": REGION,
             "BEDROCK_MODEL_ID": os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6"),
-            "BEDROCK_GUARDRAIL_ID": os.getenv("BEDROCK_GUARDRAIL_ID", ""),
+            "BEDROCK_GUARDRAIL_ID": BEDROCK_GUARDRAIL_ID,
             "BEDROCK_GUARDRAIL_VERSION": os.getenv("BEDROCK_GUARDRAIL_VERSION", "DRAFT"),
             "LLM_REQUIRE_GUARDRAIL": "true",
             "API_AUTH_TOKEN": API_AUTH_TOKEN,
@@ -199,7 +207,6 @@ def ensure_http_api(lambda_arn: str) -> str:
 
 def allow_apigw_to_invoke_lambda(api_id: str) -> None:
     lambda_client = boto3.client("lambda", region_name=REGION)
-    source_arn = f"arn:aws:execute-api:{REGION}:{ACCOUNT_ID}:{api_id}/*/*/{{proxy+}}"
     try:
         lambda_client.add_permission(
             FunctionName=LAMBDA_FUNCTION_NAME,
@@ -222,6 +229,12 @@ def get_api_endpoint(api_id: str) -> str:
 if __name__ == "__main__":
     if not API_AUTH_TOKEN:
         raise SystemExit("Set API_AUTH_TOKEN before deploying a public API.")
+    if not BEDROCK_MODEL_ARN:
+        raise SystemExit("Set BEDROCK_MODEL_ARN before deploying a Bedrock-backed API.")
+    if not BEDROCK_GUARDRAIL_ID or not BEDROCK_GUARDRAIL_ARN:
+        raise SystemExit(
+            "Set BEDROCK_GUARDRAIL_ID and BEDROCK_GUARDRAIL_ARN before deploying a guarded API."
+        )
     role_arn = ensure_lambda_role()
     ensure_ecr_repo()
     ensure_investigation_table()

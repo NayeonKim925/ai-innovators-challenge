@@ -18,39 +18,39 @@ Amazon Bedrock AgentCore다. 이 파일은 그 AgentCore Runtime에 배포하기
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 
-# backend/app을 import 경로에 추가 (컨테이너 내부에서는 backend/가 WORKDIR/app 하위에 복사됨)
-sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
+# backend/app을 import 경로에 추가 (컨테이너 내부에서는 /app/backend/app)
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from app.domain import Candidate, DatasetName, Evidence, InvestigationResult  # noqa: E402
 from app.llm.explainer import generate_narrative  # noqa: E402
+from app.repositories.investigation_store import DynamoInvestigationRepository  # noqa: E402
 
 app = BedrockAgentCoreApp()
 
 
 @app.entrypoint
 def investigation_explainer(payload: dict) -> dict:
-    """payload는 이미 결정론적으로 계산된 InvestigationResult의 JSON 표현을
-    담은 `investigation_result` 키를 기대한다. 이 함수는 새 원인후보를
-    계산하지 않고, 이미 있는 결과를 요약만 한다."""
-    raw = payload.get("investigation_result")
-    if not raw:
-        return {"error": "payload.investigation_result is required"}
+    """Summarize a durable investigation identified by ``investigation_id``.
 
-    result = InvestigationResult(
-        incident_id=raw["incident_id"],
-        dataset=DatasetName(raw["dataset"]),
-        diagnosis_time=raw["diagnosis_time"],
-        candidates=[Candidate(**c) for c in raw.get("candidates", [])],
-        evidence=[Evidence(**e) for e in raw.get("evidence", [])],
-        trace=[],
-        warnings=raw.get("warnings", []),
-        next_action=raw.get("next_action", ""),
-    )
+    The runtime intentionally does not accept a caller-supplied result object.
+    AgentCore callers may request a narrative, but cannot replace the evidence
+    that was produced and persisted by the FastAPI investigation workflow.
+    """
+    investigation_id = payload.get("investigation_id")
+    if not isinstance(investigation_id, str) or not investigation_id.strip():
+        return {"error": "payload.investigation_id is required"}
+    table_name = os.getenv("INVESTIGATION_DDB_TABLE", "mfg-investigations")
+    result = DynamoInvestigationRepository(
+        table_name=table_name,
+        region=os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1")),
+    ).get(investigation_id)
+    if result is None:
+        return {"error": "investigation not found"}
     narrative, trace_event = generate_narrative(result)
     return {
         "narrative": narrative,

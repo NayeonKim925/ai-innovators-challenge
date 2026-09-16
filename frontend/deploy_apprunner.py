@@ -12,6 +12,7 @@ Run: python frontend/deploy_apprunner.py
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 
@@ -24,6 +25,7 @@ LOCAL_IMAGE = "mfg-investigation-frontend:latest"
 SERVICE_NAME = "mfg-investigation-frontend"
 # The Lambda+API Gateway backend deployed by backend/deploy_lambda_api.py.
 BACKEND_URL = "https://dwn13wrel9.execute-api.us-east-1.amazonaws.com"
+BACKEND_API_TOKEN = os.getenv("BACKEND_API_TOKEN", "")
 
 sts = boto3.client("sts", region_name=REGION)
 ACCOUNT_ID = sts.get_caller_identity()["Account"]
@@ -103,7 +105,10 @@ def ensure_service(access_role_arn: str) -> dict:
                 "ImageRepositoryType": "ECR",
                 "ImageConfiguration": {
                     "Port": "8080",
-                    "RuntimeEnvironmentVariables": {"BACKEND_URL": BACKEND_URL},
+                    "RuntimeEnvironmentVariables": {
+                        "BACKEND_URL": BACKEND_URL,
+                        "BACKEND_API_TOKEN": BACKEND_API_TOKEN,
+                    },
                 },
             },
             "AuthenticationConfiguration": {"AccessRoleArn": access_role_arn},
@@ -133,6 +138,8 @@ def wait_service_running(service_arn: str, timeout_s: int = 420) -> str:
 
 
 if __name__ == "__main__":
+    if not BACKEND_API_TOKEN:
+        raise SystemExit("Set BACKEND_API_TOKEN before deploying the public frontend.")
     ensure_ecr_repo()
     push_image()
     access_role_arn = ensure_access_role()

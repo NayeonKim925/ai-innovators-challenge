@@ -25,6 +25,7 @@ Run: python frontend/deploy_ecs_express.py
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import time
 
@@ -37,7 +38,10 @@ SERVICE_NAME = "mfg-investigation-frontend"
 EXEC_ROLE_NAME = "ecsTaskExecutionRole"
 INFRA_ROLE_NAME = "ecsInfrastructureRoleForExpressServices"
 # The Lambda+API Gateway backend deployed by backend/deploy_lambda_api.py.
-BACKEND_URL = "https://dwn13wrel9.execute-api.us-east-1.amazonaws.com"
+BACKEND_URL = os.getenv(
+    "BACKEND_URL", "https://dwn13wrel9.execute-api.us-east-1.amazonaws.com"
+)
+BACKEND_API_TOKEN = os.getenv("BACKEND_API_TOKEN", "")
 
 sts = boto3.client("sts", region_name=REGION)
 ACCOUNT_ID = sts.get_caller_identity()["Account"]
@@ -115,7 +119,10 @@ def create_express_service(exec_role_arn: str, infra_role_arn: str) -> dict:
     primary_container = {
         "image": ECR_URI,
         "containerPort": 8080,
-        "environment": [{"name": "BACKEND_URL", "value": BACKEND_URL}],
+        "environment": [
+            {"name": "BACKEND_URL", "value": BACKEND_URL},
+            {"name": "BACKEND_API_TOKEN", "value": BACKEND_API_TOKEN},
+        ],
     }
     client = boto3.client("ecs", region_name=REGION)
     response = client.create_express_gateway_service(
@@ -156,6 +163,8 @@ def get_endpoint() -> str:
 
 
 if __name__ == "__main__":
+    if not BACKEND_API_TOKEN:
+        raise SystemExit("Set BACKEND_API_TOKEN before deploying the public frontend.")
     exec_role_arn, infra_role_arn = ensure_iam_roles()
     push_image()
     create_express_service(exec_role_arn, infra_role_arn)

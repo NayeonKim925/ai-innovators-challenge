@@ -25,36 +25,7 @@ agent_arn = next(
 )
 print(f"agent_arn={agent_arn}")
 
-payload = {
-    "investigation_result": {
-        "incident_id": "case_00e964450b22e69e0d42089c",
-        "dataset": "causrca",
-        "diagnosis_time": 212.103,
-        "candidates": [
-            {
-                "rank": 1,
-                "signal": "Spd_ActSpeed_Z",
-                "reason": (
-                    "CausTR ranked this observable signal using the runtime "
-                    "expert graph and pre-cutoff observations. It remains an "
-                    "investigation candidate, not a confirmed cause."
-                ),
-                "evidence_ids": ["E1"],
-                "status": "candidate",
-            }
-        ],
-        "evidence": [
-            {
-                "id": "E1",
-                "title": "CausTR candidate signal: Spd_ActSpeed_Z",
-                "detail": "At t=211.948s, Spd_ActSpeed_Z reported '5000.0' before the diagnosis cutoff.",
-                "source": "Pinned causRCA CausalPrioTimeRecencyRCA (d932ab7ad91a) with runtime expert graph",
-            }
-        ],
-        "warnings": ["This is a research investigation aid. Candidates require explicit expert review."],
-        "next_action": "Compare each candidate with process documentation and the observed signal history.",
-    }
-}
+payload = {"investigation_id": "case_00e964450b22e69e0d42089c"}
 
 client = boto3.client("bedrock-agentcore", region_name=REGION)
 session_id = str(uuid.uuid4())
