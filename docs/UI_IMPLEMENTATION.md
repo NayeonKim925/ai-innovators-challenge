@@ -42,8 +42,16 @@
 - 기존 ECS Express 서비스의 네트워크·역할·환경값을 보존하고 이미지와 health 경로만 교체했다. 기존 Streamlit 이미지는 복구 가능하도록 보존했다.
 - [공개 프론트](https://mf-402d7cdcc2334f2c849cfe7485511d5c.ecs.us-east-1.on.aws)에서 React 화면 HTTP200, 실제 조사 POST200, 후보1개/근거1개, 브라우저 오류0개를 확인했다.
 - 이 확인은 최근 활성 알람 시점으로 이동한 causRCA 사건1건의 결정론적 흐름이다. LLM 호출·전문가 승인 없이 검증했다.
-- [실제 배포 화면](ui/deployed-workspace.png). 새 이미지 digest: `sha256:e45385f6c1c1c10e7b08c2560a6f77171cdd1afa973ef7281e865ce75314fc27`.
+- 초기 React 전환 이미지 digest: `sha256:e45385f6c1c1c10e7b08c2560a6f77171cdd1afa973ef7281e865ce75314fc27`. 브랜딩 적용 버전은 아래 기록을 따른다.
 - 기본 카나리 배포/롤백 보호는 유지했다. 공개 UI 검증 이후 안정화 대기까지 종료되어 AWS 서비스 배포 상태 `SUCCESSFUL`을 최종 확인했다.
+
+### Cluephase 브랜딩 반영 · 2026-09-17
+
+- 프론트 이미지만 교체했으며 백엔드·리소스명·기존 비밀 환경값은 유지했다.
+- 적용 이미지: `sha256:7be68842c6549ad75ff239388ef0c5a0f08a52b856009bf0483b84f8db77a8c6`.
+- 공개 URL에서 Cluephase 제목·접근 가능한 브랜드 링크, HTTP200, 실제 조사 POST200, 후보1개/근거1개, 브라우저 오류0개를 검증했다. LLM은 호출하지 않았다.
+- 트래픽100% 전환 및 안정화 검사가 끝난 뒤 AWS 배포 `SUCCESSFUL` 확인. [배포 화면](ui/deployed-workspace.png)을 새 버전으로 갱신했다.
+- 코드·브랜드 가이드 커밋은 `bb4ecd8`. GitHub push는 이번 작업에 포함하지 않았다.
 
 ## 남은 서비스 작업
 
