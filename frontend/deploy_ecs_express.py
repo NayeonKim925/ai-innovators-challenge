@@ -34,6 +34,7 @@ import boto3
 REGION = "us-east-1"
 ECR_REPO_NAME = "mfg-investigation-frontend"
 IMAGE_TAG = "latest"
+LOCAL_IMAGE = "mfg-investigation-frontend:latest"
 SERVICE_NAME = "mfg-investigation-frontend"
 EXEC_ROLE_NAME = "ecsTaskExecutionRole"
 INFRA_ROLE_NAME = "ecsInfrastructureRoleForExpressServices"
@@ -48,6 +49,16 @@ ACCOUNT_ID = sts.get_caller_identity()["Account"]
 ECR_URI = f"{ACCOUNT_ID}.dkr.ecr.{REGION}.amazonaws.com/{ECR_REPO_NAME}:{IMAGE_TAG}"
 
 
+def ensure_ecr_repo() -> None:
+    ecr = boto3.client("ecr", region_name=REGION)
+    try:
+        ecr.describe_repositories(repositoryNames=[ECR_REPO_NAME])
+        print(f"ECR repo {ECR_REPO_NAME} already exists")
+    except ecr.exceptions.RepositoryNotFoundException:
+        ecr.create_repository(repositoryName=ECR_REPO_NAME)
+        print(f"created ECR repo {ECR_REPO_NAME}")
+
+
 def ensure_iam_roles() -> tuple[str, str]:
     iam = boto3.client("iam")
     exec_role_arn = f"arn:aws:iam::{ACCOUNT_ID}:role/{EXEC_ROLE_NAME}"
@@ -56,7 +67,11 @@ def ensure_iam_roles() -> tuple[str, str]:
     exec_trust = {
         "Version": "2012-10-17",
         "Statement": [
-            {"Effect": "Allow", "Principal": {"Service": "ecs-tasks.amazonaws.com"}, "Action": "sts:AssumeRole"}
+            {
+                "Effect": "Allow",
+                "Principal": {"Service": "ecs-tasks.amazonaws.com"},
+                "Action": "sts:AssumeRole",
+            }
         ],
     }
     infra_trust = {
@@ -111,6 +126,7 @@ def push_image() -> None:
         text=True,
         check=True,
     )
+    subprocess.run(["docker", "tag", LOCAL_IMAGE, ECR_URI], check=True)
     subprocess.run(["docker", "push", ECR_URI], check=True)
     print(f"pushed {ECR_URI}")
 
@@ -125,6 +141,21 @@ def create_express_service(exec_role_arn: str, infra_role_arn: str) -> dict:
         ],
     }
     client = boto3.client("ecs", region_name=REGION)
+    service_arn = f"arn:aws:ecs:{REGION}:{ACCOUNT_ID}:service/default/{SERVICE_NAME}"
+    try:
+        existing = client.describe_express_gateway_service(serviceArn=service_arn)["service"]
+    except client.exceptions.ServiceNotFoundException:
+        existing = None
+    existing_status = existing.get("status", {}).get("statusCode") if existing else None
+    if existing and existing_status not in {"DELETING", "DELETE_FAILED"}:
+        response = client.update_express_gateway_service(
+            serviceArn=service_arn,
+            executionRoleArn=exec_role_arn,
+            healthCheckPath="/_stcore/health",
+            primaryContainer=primary_container,
+        )
+        print(f"updated existing ECS Express service: {service_arn}")
+        return response["service"]
     response = client.create_express_gateway_service(
         serviceName=SERVICE_NAME,
         primaryContainer=primary_container,
@@ -157,14 +188,18 @@ def wait_rollout_complete(timeout_s: int = 300) -> None:
 
 def get_endpoint() -> str:
     client = boto3.client("ecs", region_name=REGION)
-    response = client.describe_services(cluster="default", services=[SERVICE_NAME])
-    deployment = response["services"][0]["deployments"][0]
-    return deployment["ingressPaths"][0]["endpoint"]
+    service_arn = f"arn:aws:ecs:{REGION}:{ACCOUNT_ID}:service/default/{SERVICE_NAME}"
+    response = client.describe_express_gateway_service(serviceArn=service_arn)
+    configurations = response["service"].get("activeConfigurations", [])
+    if not configurations or not configurations[0].get("ingressPaths"):
+        raise SystemExit("ECS Express service has no public ingress endpoint yet")
+    return configurations[0]["ingressPaths"][0]["endpoint"]
 
 
 if __name__ == "__main__":
     if not BACKEND_API_TOKEN:
         raise SystemExit("Set BACKEND_API_TOKEN before deploying the public frontend.")
+    ensure_ecr_repo()
     exec_role_arn, infra_role_arn = ensure_iam_roles()
     push_image()
     create_express_service(exec_role_arn, infra_role_arn)
