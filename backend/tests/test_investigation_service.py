@@ -13,11 +13,12 @@ from app.domain import (
     Capability,
     DatasetName,
     Incident,
+    LLMStatus,
     Observation,
     TimeRange,
     TraceEvent,
 )
-from app.services.investigations import run_investigation
+from app.services.investigations import answer_question, run_investigation
 
 
 def _incident() -> Incident:
@@ -90,3 +91,15 @@ def test_run_investigation_with_llm_falls_back_when_narrative_unavailable(
     assert result.mode == "deterministic"
     assert result.llm_narrative is None
     assert result.trace[-1].tool == "bedrock_llm_narrative"
+
+
+def test_chat_does_not_retry_a_blocked_llm_result() -> None:
+    result = run_investigation(
+        _incident(), diagnosis_time=3, question="", include_llm_narrative=False
+    ).model_copy(update={"llm_status": LLMStatus.BLOCKED})
+
+    response = answer_question(result, "다시 요약해줘")
+
+    assert response.blocked is True
+    assert response.llm_status == LLMStatus.BLOCKED
+    assert response.grounded_evidence_ids == ["E1"]

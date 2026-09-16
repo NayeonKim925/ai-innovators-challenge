@@ -78,6 +78,23 @@ def answer_question(result: InvestigationResult, question: str) -> ChatResponse:
             grounded_evidence_ids=grounded_ids,
             llm_status=result.llm_status,
         )
+    if result.llm_status in {
+        LLMStatus.BLOCKED,
+        LLMStatus.UNAVAILABLE,
+        LLMStatus.UNVERIFIED,
+    }:
+        signals = ", ".join(candidate.signal for candidate in result.candidates)
+        return ChatResponse(
+            answer=(
+                f"현재 조사에서 확인된 후보는 {signals}입니다. "
+                "이전 AI 요약이 안전 정책 또는 가용성 검사를 통과하지 못해 "
+                "추가 호출은 생략합니다. 각 후보의 근거를 전문가가 확인하세요."
+            ),
+            grounded_evidence_ids=grounded_ids,
+            blocked=result.llm_status == LLMStatus.BLOCKED,
+            llm_status=result.llm_status,
+            trace=result.trace[-1] if result.trace else None,
+        )
     if not any(candidate.status == "candidate" for candidate in result.candidates):
         from ..domain import TraceEvent
 
@@ -89,7 +106,10 @@ def answer_question(result: InvestigationResult, question: str) -> ChatResponse:
             trace=TraceEvent(
                 step=5,
                 tool="bedrock_llm_narrative_skipped",
-                detail="No verified candidate existed, so the chat request was answered deterministically.",
+                detail=(
+                    "No verified candidate existed, so the chat request was answered "
+                    "deterministically."
+                ),
             ),
             llm_status=LLMStatus.SKIPPED,
         )

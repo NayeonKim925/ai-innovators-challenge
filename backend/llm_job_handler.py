@@ -16,4 +16,3 @@ def handler(event: dict, _context: object) -> dict[str, int]:
         process_narrative_job(repository, body["investigation_id"])
         processed += 1
     return {"processed": processed}
-
