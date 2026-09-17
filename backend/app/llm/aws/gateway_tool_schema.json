@@ -1,0 +1,34 @@
+[
+  {
+    "name": "get_root_cause_ranking",
+    "description": "Reads the verified investigation result identified by investigation_id from durable API storage and returns its top-k candidates. Never accepts caller-supplied candidates or scores.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "investigation_id": {
+          "type": "string",
+          "description": "Opaque investigation ID returned by POST /api/incidents/{id}/investigations."
+        },
+        "top_k": {
+          "type": "integer",
+          "description": "Maximum number of candidates to return (default 3)."
+        }
+      },
+      "required": ["investigation_id"]
+    }
+  },
+  {
+    "name": "get_fault_reference",
+    "description": "Returns AI-curated general background (role, common causes, symptoms) for a signal's subsystem (e.g. 'RF Load', 'TCP Top Pwr'). Not a verified equipment manual; always includes a disclaimer. Returns found=false for unknown signals rather than fabricating an answer.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "variable_name": {
+          "type": "string",
+          "description": "A signal name returned by get_root_cause_ranking's candidates[].signal field."
+        }
+      },
+      "required": ["variable_name"]
+    }
+  }
+]

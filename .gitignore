@@ -11,6 +11,8 @@ __pycache__/
 # JavaScript
 node_modules/
 dist/
+test-results/
+playwright-report/
 
 # Local configuration and databases
 .env
@@ -35,3 +37,6 @@ third_party/causRCA/
 *.mat
 processed/
 loaders/__pycache__/
+
+# Lambda deployment build artifacts (recreated by deploy scripts).
+*.zip

@@ -1,6 +1,6 @@
 # 구현 계획서 · 제조 이상 조사 서비스
 
-> 문서 상태: `실행 기준안` · 마지막 갱신: 2026-09-11  
+> 문서 상태: `실행 기준안` · 마지막 갱신: 2026-09-17
 > 대상: 팀원, 구현 에이전트, 발표·평가 담당자
 
 ## 1. 이번 MVP가 완성해야 하는 것
@@ -58,6 +58,21 @@ data/processed/    재생성 가능한 중간 산출물. 서비스에는 명시�
 `root_cause`, `ground_truth`, `label_value`, `manipulated_variable`, `diagnosis_time`, `fault_name`, `split`은 runtime에 들어오면 안 된다. 자세한 규칙은 [DATA_CONTRACT.md](DATA_CONTRACT.md)를 단일 기준으로 사용한다.
 
 ## 3. 현재 상태와 우선순위
+
+### 2026-09-16 배포 기준 현황
+
+| 단계 | 상태 | 근거 |
+| --- | --- | --- |
+| M0 데이터 준비 | 완료 | `data/runtime/causrca/incidents.json`에 100개 HIL 사건, `data/evaluation/causrca/cases.json`에 정답 분리 |
+| M1 benchmark | 기준선 완료 | time-recency 100건 실행: 실패 0, Hit@1 0.39, Hit@3 0.60, MRR 0.4833, MAP@3 0.3197 |
+| M2 API·검토 저장 | 완료 | Lambda/API Gateway, DynamoDB 저장, review/report/chat API |
+| M3 조사 UI | React 구현·AWS 실동작 확인 | 사건 선택→조사→근거→검토→질문→보고서/기록 복원 로컬 실API 검증, AWS 공개 주소에서 화면/조사 API 200 확인. 상세는 `docs/UI_IMPLEMENTATION.md` |
+| M4 선택적 LLM 설명 | 조건부 구현 | Bedrock 설정은 있지만 기본값은 결정론적 모드, 비동기 큐는 권한 부족으로 비활성 |
+| M5 Metal Etch 이식성 | 보류 | 어댑터 코드는 있으나 발표용 이식성 시나리오와 별도 검증이 남음 |
+
+2026-09-17 기준 고정된 API 계약을 사용하는 React 조사 UI를 구현했다. Streamlit은 비교·복구용으로 보존한다. 다음 고도화는 새 화면 추가보다 실제 Bedrock 상태 검증, 사용자/조직 권한, 비용 제한, 전문가 사용성 검증 순서로 진행한다. 이번 UI 작업을 M4 생성 품질이나 M5 데이터 이식성 완료로 계산하지 않는다.
+
+추가로 M6에서는 단발성 조사 화면을 **증거 폐쇄형 사건 오케스트레이션**으로 확장한다. 후보를 보여 준 뒤 끝내지 않고, 근거가 불충분하면 사람 확인 업무를 생성하고 응답·재개·판단 보류·최종 검토까지 상태로 남긴다. Case Inbox·사람 확인 업무·실행 이력·종료 게이트와 `CASE_DDB_TABLE` 기반의 영속 저장소 구현까지 완료했으며, 실제 AWS 재배포 후 영속성 검증은 다음 배포 작업이다. M6의 범위, 종료 게이트, API, UI 순서는 [CASE_ORCHESTRATION_PLAN.md](CASE_ORCHESTRATION_PLAN.md)를 단일 기준으로 사용한다.
 
 ### 이미 구현됨
 

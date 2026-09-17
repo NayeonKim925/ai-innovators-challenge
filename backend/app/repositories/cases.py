@@ -1,0 +1,158 @@
+"""Persistence boundary for evidence-closure cases.
+
+Case state must survive Lambda worker changes. The local in-memory repository
+remains the default for tests and research, while ``CASE_DDB_TABLE`` enables a
+small, independent DynamoDB table in a deployed environment. Case and
+investigation records intentionally use different tables because their primary
+keys and access patterns are different.
+"""
+
+from __future__ import annotations
+
+import os
+from typing import Protocol
+
+from ..domain import InvestigationCase
+
+
+class CaseNotFoundError(LookupError):
+    """Raised when a caller references a case that was never stored."""
+
+
+class CaseAlreadyExistsError(RuntimeError):
+    """Raised when a new case ID collides with an existing record."""
+
+
+class CaseConflictError(RuntimeError):
+    """Raised when a case changed after the caller read it."""
+
+
+class CaseRepository(Protocol):
+    def save(self, case: InvestigationCase) -> None: ...
+
+    def replace(self, case: InvestigationCase, *, expected_version: int) -> None: ...
+
+    def get(self, case_id: str) -> InvestigationCase | None: ...
+
+    def list(self) -> list[InvestigationCase]: ...
+
+
+class InMemoryCaseRepository:
+    """Test-friendly storage for stateful cases during local development."""
+
+    def __init__(self) -> None:
+        self._cases: dict[str, InvestigationCase] = {}
+
+    def save(self, case: InvestigationCase) -> None:
+        if case.id in self._cases:
+            raise CaseAlreadyExistsError(case.id)
+        self._cases[case.id] = case
+
+    def replace(self, case: InvestigationCase, *, expected_version: int) -> None:
+        current = self._cases.get(case.id)
+        if current is None:
+            raise CaseNotFoundError(case.id)
+        if current.version != expected_version:
+            raise CaseConflictError(case.id)
+        if case.version != expected_version + 1:
+            raise ValueError("Replacement case version must increment by one")
+        self._cases[case.id] = case
+
+    def get(self, case_id: str) -> InvestigationCase | None:
+        return self._cases.get(case_id)
+
+    def list(self) -> list[InvestigationCase]:
+        return sorted(self._cases.values(), key=lambda item: item.updated_at, reverse=True)
+
+
+class DynamoCaseRepository:
+    """Stores one evidence-closure case per DynamoDB item.
+
+    The serialized domain model keeps DynamoDB-specific types away from the
+    orchestration service. ``list`` is a paginated scan because the MVP has no
+    organization or assignee partition yet; it is safe for the small research
+    workspace but should be replaced by an indexed, tenant-scoped query before
+    multi-organization operation.
+    """
+
+    def __init__(self, table_name: str, region: str | None = None) -> None:
+        try:
+            import boto3
+            from botocore.exceptions import ClientError
+        except ImportError as exc:  # pragma: no cover - Lambda bundles boto3
+            raise RuntimeError("DynamoDB storage requires boto3") from exc
+        self._client_error = ClientError
+        self._table = boto3.resource("dynamodb", region_name=region).Table(table_name)
+
+    def save(self, case: InvestigationCase) -> None:
+        try:
+            self._table.put_item(
+                Item={
+                    "case_id": case.id,
+                    "case_json": case.model_dump_json(),
+                    "updated_at": case.updated_at,
+                    "version": case.version,
+                },
+                ConditionExpression="attribute_not_exists(case_id)",
+            )
+        except self._client_error as exc:
+            if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+                raise CaseAlreadyExistsError(case.id) from exc
+            raise
+
+    def replace(self, case: InvestigationCase, *, expected_version: int) -> None:
+        if case.version != expected_version + 1:
+            raise ValueError("Replacement case version must increment by one")
+        try:
+            self._table.update_item(
+                Key={"case_id": case.id},
+                UpdateExpression=(
+                    "SET case_json = :case_json, updated_at = :updated_at, #version = :next_version"
+                ),
+                ConditionExpression="attribute_exists(case_id) AND #version = :expected_version",
+                ExpressionAttributeNames={"#version": "version"},
+                ExpressionAttributeValues={
+                    ":case_json": case.model_dump_json(),
+                    ":updated_at": case.updated_at,
+                    ":expected_version": expected_version,
+                    ":next_version": case.version,
+                },
+            )
+        except self._client_error as exc:
+            if exc.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+                raise CaseConflictError(case.id) from exc
+            raise
+
+    def get(self, case_id: str) -> InvestigationCase | None:
+        response = self._table.get_item(Key={"case_id": case_id})
+        item = response.get("Item")
+        if not item:
+            return None
+        return InvestigationCase.model_validate_json(item["case_json"])
+
+    def list(self) -> list[InvestigationCase]:
+        items: list[dict[str, object]] = []
+        start_key: dict[str, object] | None = None
+        while True:
+            kwargs: dict[str, object] = {"ProjectionExpression": "case_json"}
+            if start_key:
+                kwargs["ExclusiveStartKey"] = start_key
+            response = self._table.scan(**kwargs)
+            items.extend(response.get("Items", []))
+            start_key = response.get("LastEvaluatedKey")
+            if not start_key:
+                break
+        cases = [InvestigationCase.model_validate_json(item["case_json"]) for item in items]
+        return sorted(cases, key=lambda item: item.updated_at, reverse=True)
+
+
+def build_case_repository() -> CaseRepository:
+    """Choose durable case storage when configured, otherwise preserve local mode."""
+
+    table_name = os.getenv("CASE_DDB_TABLE")
+    if table_name:
+        return DynamoCaseRepository(
+            table_name=table_name,
+            region=os.getenv("AWS_REGION", os.getenv("AWS_DEFAULT_REGION", "us-east-1")),
+        )
+    return InMemoryCaseRepository()

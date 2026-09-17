@@ -1,10 +1,13 @@
-.PHONY: install api test lint bootstrap-causrca prepare-causrca validate-data benchmark-causrca
+.PHONY: install api frontend test lint bootstrap-causrca prepare-causrca validate-data benchmark-causrca
 
 install:
 	python -m pip install -e '.[dev]'
 
 api:
 	uvicorn app.main:app --app-dir backend --reload --port 8000
+
+frontend:
+	streamlit run frontend/app.py
 
 test:
 	python -m pytest -q

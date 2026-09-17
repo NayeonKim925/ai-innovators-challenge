@@ -1,0 +1,18 @@
+{
+  "score": 92,
+  "threshold": 90,
+  "verdict": "pass",
+  "category_match": true,
+  "differences": [
+    "기존 설명형 이름을 Cluephase 워드마크로 교체하고 업무 공간 명칭과 분리했다.",
+    "기존 네이비·청록 업무 UI의 밀도와 정보 위계를 유지했다.",
+    "첫 안내 화면 캡처는 이미지 decode 이전에 찍혀 로고가 비어 보였다. decode 후 재확인 시 정상이며 캡처 테스트에서 이를 기다리도록 보완한다."
+  ],
+  "suggestions": ["브랜드 인지도와 한글 발음 기억성은 실제 사용자에게 별도로 확인한다."],
+  "reasoning": "1440px 안내 화면과 390px 조사 화면을 기존 UI와 비교해 브랜드의 정렬·가독성·색상 일관성을 확인했다. 자체 정성 평가이며 외부 점수나 접근성 인증이 아니다.",
+  "next_actions": [],
+  "verification": "build, Node 10, E2E 3, backend 47 통과. 공개 URL HTTP200/조사POST200/브라우저오류0. AWS 배포 SUCCESSFUL. 기존 backend lint 47건은 별도 기록.",
+  "reference_image_revision": "6ce0594 (브랜딩 이전 배포 화면)",
+  "reference_images": ["docs/ui/deployed-workspace.png"],
+  "generated_screenshots": ["docs/ui/brand-guide.png", "docs/ui/mobile-workspace.png", "docs/ui/brand-board.png", "docs/ui/deployed-workspace.png"]
+}
