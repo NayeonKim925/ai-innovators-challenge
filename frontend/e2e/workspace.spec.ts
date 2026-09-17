@@ -125,6 +125,39 @@ test("API failure is actionable and retry recovers", async ({ page }) => {
   ).toBeEnabled();
 });
 
+test("case orchestration requires evidence confirmation before closure", async ({
+  page,
+}) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/");
+  await page
+    .getByRole("button", { name: /최근 알람 발생 시점으로 이동/ })
+    .click();
+  await page.getByRole("button", { name: "조사 실행", exact: true }).click();
+  await expect(page.locator(".candidate").first()).toBeVisible();
+  await page.getByRole("button", { name: "확인 업무로 전환" }).click();
+
+  await expect(
+    page.getByRole("region", { name: "사건 인박스" }),
+  ).toBeVisible();
+  await expect(page.getByText("전문가 확인 업무")).toBeVisible();
+  await page.locator(".task-form input").fill("E2E 공정 전문가");
+  await page.locator(".task-form textarea").fill("공개 데이터 기반 확인 기록입니다.");
+  await page.getByRole("button", { name: "응답 기록" }).click();
+
+  await expect(page.getByText("최종 검토가 남아 있습니다")).toBeVisible();
+  await page.getByPlaceholder("최종 검토자").fill("E2E 검토자");
+  await page.getByRole("button", { name: "검토 승인 후 종료" }).click();
+  await expect(
+    page
+      .getByRole("region", { name: "사건 상세" })
+      .getByText("종료됨", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("전문가 승인 후 사건을 종료했습니다.")).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 test("ledger summary and case navigation remain usable at narrow widths", async ({ page }) => {
   await page.goto("/");
   const summary = page.getByLabel("조사 환경 요약");

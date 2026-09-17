@@ -12,8 +12,11 @@ from fastapi.responses import JSONResponse
 
 from .data.runtime_repository import JsonRuntimeRepository
 from .domain import (
+    CaseCreateRequest,
+    CaseReviewDecision,
     ChatRequest,
     DatasetName,
+    ExpertTaskResponse,
     InvestigationReport,
     InvestigationRequest,
     LLMStatus,
@@ -21,11 +24,25 @@ from .domain import (
     StoredReview,
 )
 from .llm.bedrock_client import bedrock_model_id, llm_timeout_s
+from .repositories.cases import (
+    CaseConflictError,
+    CaseNotFoundError,
+    CaseRepository,
+    build_case_repository,
+)
 from .repositories.investigation_store import (
     InvestigationRepository,
     build_investigation_repository,
 )
 from .repositories.investigations import InvestigationNotFoundError
+from .services.cases import (
+    CaseTransitionError,
+    get_case,
+    list_cases,
+    open_case,
+    respond_to_task,
+    review_case,
+)
 from .services.investigations import answer_question, run_investigation
 from .services.narrative_jobs import (
     NarrativeQueueUnavailable,
@@ -37,6 +54,7 @@ from .services.narrative_jobs import (
 def create_app(
     repository: JsonRuntimeRepository | None = None,
     investigations: InvestigationRepository | None = None,
+    cases: CaseRepository | None = None,
 ) -> FastAPI:
     app = FastAPI(
         title="Manufacturing Investigation API",
@@ -47,6 +65,7 @@ def create_app(
     )
     app.state.repository = repository or JsonRuntimeRepository()
     app.state.investigations = investigations or build_investigation_repository()
+    app.state.cases = cases or build_case_repository()
     origins = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
     app.add_middleware(
         CORSMiddleware,
@@ -72,14 +91,18 @@ def create_app(
 
     @app.get("/api/health")
     def health() -> dict[str, object]:
-        storage = "dynamodb" if os.getenv("INVESTIGATION_DDB_TABLE") else "in_memory"
+        investigation_storage = (
+            "dynamodb" if os.getenv("INVESTIGATION_DDB_TABLE") else "in_memory"
+        )
+        case_storage = "dynamodb" if os.getenv("CASE_DDB_TABLE") else "in_memory"
         guardrail_configured = bool(os.getenv("BEDROCK_GUARDRAIL_ID"))
         llm_configured = bool(os.getenv("BEDROCK_MODEL_ID"))
         return {
             "status": "ok",
             "mode": "deterministic",
             "deployment": os.getenv("DEPLOYMENT_ENV", "local-research"),
-            "storage": storage,
+            "storage": investigation_storage,
+            "case_storage": case_storage,
             "llm_provider": "bedrock" if llm_configured else "not_configured",
             "llm_model": bedrock_model_id() if llm_configured else "",
             "llm_timeout_s": llm_timeout_s(),
@@ -168,6 +191,96 @@ def create_app(
                 content={"investigation_id": investigation_id, **result.model_dump(mode="json")},
             )
         return {"investigation_id": investigation_id, **result.model_dump(mode="json")}
+
+    @app.post("/api/incidents/{incident_id}/cases")
+    def create_case(
+        incident_id: str,
+        body: CaseCreateRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        """Open an evidence-closure case without calling an LLM.
+
+        The deterministic investigation is stored separately and linked by
+        ``investigation_id`` so a user can inspect the original candidates,
+        evidence, and tool trace behind the follow-up task.
+        """
+        require_api_token(authorization)
+        incident = app.state.repository.get_incident(incident_id)
+        if incident is None:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        try:
+            case = open_case(
+                incident=incident,
+                diagnosis_time=body.diagnosis_time,
+                question=body.question,
+                investigations=app.state.investigations,
+                cases=app.state.cases,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return case.model_dump(mode="json")
+
+    @app.get("/api/cases")
+    def cases(authorization: str | None = Header(default=None)) -> dict[str, object]:
+        require_api_token(authorization)
+        return {"cases": [item.model_dump(mode="json") for item in list_cases(app.state.cases)]}
+
+    @app.get("/api/cases/{case_id}")
+    def case_detail(
+        case_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_api_token(authorization)
+        try:
+            return get_case(case_id, app.state.cases).model_dump(mode="json")
+        except CaseNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Case not found") from exc
+
+    @app.post("/api/cases/{case_id}/tasks/{task_id}/responses")
+    def record_evidence_response(
+        case_id: str,
+        task_id: str,
+        body: ExpertTaskResponse,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_api_token(authorization)
+        try:
+            case = respond_to_task(
+                case_id=case_id,
+                task_id=task_id,
+                response=body,
+                cases=app.state.cases,
+            )
+        except CaseNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Case not found") from exc
+        except CaseConflictError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail="Case changed while processing this response. Refresh and retry.",
+            ) from exc
+        except CaseTransitionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return case.model_dump(mode="json")
+
+    @app.post("/api/cases/{case_id}/reviews")
+    def create_case_review(
+        case_id: str,
+        body: CaseReviewDecision,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_api_token(authorization)
+        try:
+            case = review_case(case_id=case_id, decision=body, cases=app.state.cases)
+        except CaseNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Case not found") from exc
+        except CaseConflictError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail="Case changed while processing this review. Refresh and retry.",
+            ) from exc
+        except CaseTransitionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return case.model_dump(mode="json")
 
     @app.get("/api/investigations/{investigation_id}")
     def get_investigation(

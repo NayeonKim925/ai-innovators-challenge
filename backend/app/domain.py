@@ -24,6 +24,34 @@ class LLMStatus(str, Enum):
     UNVERIFIED = "unverified"
 
 
+class CaseStatus(str, Enum):
+    """Human-in-the-loop state of an investigation case.
+
+    A case is intentionally distinct from an InvestigationResult. The result
+    records what a deterministic tool observed at a cutoff; the case records
+    what still needs a human response before the investigation can be closed.
+    """
+
+    AWAITING_EVIDENCE = "awaiting_evidence"
+    READY_FOR_REVIEW = "ready_for_review"
+    REOPENED = "reopened"
+    ABSTAINED = "abstained"
+    CLOSED = "closed"
+
+
+class EvidenceTaskStatus(str, Enum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+
+
+class ExpertResponseOutcome(str, Enum):
+    """Outcome of an evidence check, never a root-cause confirmation."""
+
+    CONFIRMED = "confirmed"
+    REFUTED = "refuted"
+    UNAVAILABLE = "unavailable"
+
+
 class Capability(str, Enum):
     TIME_SERIES = "time_series"
     MULTI_SOURCE_EVIDENCE = "multi_source_evidence"
@@ -179,3 +207,100 @@ class InvestigationReport(BaseModel):
     investigation_id: str
     result: InvestigationResult
     reviews: list[StoredReview]
+
+
+class CaseCreateRequest(BaseModel):
+    """Starts a stateful case without opting into an LLM call."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    diagnosis_time: float = Field(ge=0)
+    question: str = Field(default="", max_length=2000)
+
+
+class ExpertTaskResponse(BaseModel):
+    """A bounded expert response to a requested evidence check.
+
+    ``confirmed`` means the expert could confirm the stated observation or
+    documentation comparison, not that a candidate is the real physical cause.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    outcome: ExpertResponseOutcome
+    comment: str = Field(default="", max_length=2000)
+    responder: str = Field(min_length=1, max_length=120)
+
+
+class EvidenceTask(BaseModel):
+    """A human action the case must resolve before it can progress."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,80}$")
+    kind: Literal["verify_candidate", "collect_observation"]
+    status: EvidenceTaskStatus = EvidenceTaskStatus.PENDING
+    requested_role: Literal["operator", "process_expert", "equipment_expert"]
+    title: str = Field(min_length=1, max_length=240)
+    instructions: str = Field(min_length=1, max_length=2000)
+    candidate_signal: str | None = Field(default=None, max_length=120)
+    evidence_ids: list[str] = Field(default_factory=list)
+    trace_steps: list[int] = Field(default_factory=list)
+    response: ExpertTaskResponse | None = None
+    created_at: str
+    completed_at: str | None = None
+
+
+class CaseEvent(BaseModel):
+    """Persisted event used by the UI as an auditable agent run ledger."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    sequence: int = Field(ge=1)
+    event_type: Literal[
+        "analysis_completed",
+        "evidence_task_created",
+        "expert_response_recorded",
+        "case_ready_for_review",
+        "case_reopened",
+        "case_abstained",
+        "case_closed",
+    ]
+    detail: str = Field(min_length=1, max_length=2000)
+    actor: Literal["case_orchestrator", "expert"]
+    evidence_ids: list[str] = Field(default_factory=list)
+    trace_steps: list[int] = Field(default_factory=list)
+    created_at: str
+
+
+class CaseReviewDecision(BaseModel):
+    """Final human decision for a case whose required evidence work is done."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["approve", "reject"]
+    comment: str = Field(default="", max_length=2000)
+    reviewer: str = Field(min_length=1, max_length=120)
+
+
+class StoredCaseReview(CaseReviewDecision):
+    reviewed_at: str
+
+
+class InvestigationCase(BaseModel):
+    """A case binds an immutable deterministic investigation to human follow-up."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,80}$")
+    incident_id: str
+    dataset: DatasetName
+    investigation_id: str
+    status: CaseStatus
+    version: int = Field(default=0, ge=0)
+    next_action: str = Field(min_length=1, max_length=2000)
+    tasks: list[EvidenceTask] = Field(default_factory=list)
+    events: list[CaseEvent] = Field(default_factory=list)
+    reviews: list[StoredCaseReview] = Field(default_factory=list)
+    created_at: str
+    updated_at: str

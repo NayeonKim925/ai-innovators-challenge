@@ -17,6 +17,7 @@
 - causRCA 데이터 준비 및 benchmark 연동: 구현 완료(100개 사건 runtime/evaluation 분리)
 - Metal Etch 이식성 어댑터: 다음 단계
 - 전문가 검토 저장: 구현 완료
+- 사건 인박스와 증거 확인·최종 검토 게이트: 구현 완료(로컬 in-memory, AWS용 DynamoDB 저장소 구현)
 - 조사 UI: React/TypeScript UI 구현, 실제 API로 조사·검토·질문·보고서 흐름 검증. 기존 Streamlit은 비교·복구용으로 보존
 
 UI 의사결정 원본은 [DESIGN.md](DESIGN.md), 실행 및 프록시 보안 경계는 [프론트 가이드](frontend/README.md), 레퍼런스 선택 근거는 [디자인 리서치](.lazyweb/quick-references/investigation-2026-09-17/report.md)에 있습니다.
@@ -60,6 +61,10 @@ BACKEND_URL=http://127.0.0.1:8000 npm start
 기본 웹 주소는 `http://localhost:8080`입니다. 브라우저는 같은 출처의 `/api`로 요청하고 Node 게이트웨이가 서버에서만 API 토큰을 붙입니다. 로컬 백엔드 인증을 켰다면 동일한 토큰을 서버 환경변수 `BACKEND_API_TOKEN`으로 설정합니다. `VITE_*` 변수에는 비밀키를 넣지 않습니다.
 
 마지막 관측 시점에 활성 알람이 없다면 후보를 제시하지 않습니다. 화면의 **최근 알람 발생 시점으로 이동**은 관측 데이터의 마지막 `Alarm=True` 시점만 사용하며 평가 정답 시점을 읽지 않습니다. 조사 기록 목록은 이 브라우저에서 실행한 ID만 저장하고, 결과·검토는 API에서 읽습니다. 공유 검증 환경이며 사용자별 인증/권한 분리는 아직 없습니다.
+
+사건 인박스는 후보를 “확정 원인”으로 바꾸지 않습니다. 전문가의 증거 확인과 명시적인
+최종 검토를 거쳐야만 사건을 종료할 수 있습니다. 로컬 연구 모드는 메모리 저장소를 사용하고,
+AWS 배포에서는 `CASE_DDB_TABLE`로 별도 DynamoDB 사건 저장소를 활성화합니다.
 
 ### 기존 Streamlit UI (비교·복구용)
 

@@ -3,12 +3,14 @@ import {
   Activity,
   ArrowDownToLine,
   ArrowRight,
+  Bot,
   Check,
   ChevronRight,
   CircleHelp,
   Clock3,
   Database,
   FileSearch,
+  ListChecks,
   Layers3,
   LoaderCircle,
   MessageSquare,
@@ -18,6 +20,7 @@ import {
   Send,
   ShieldCheck,
   TriangleAlert,
+  UserRoundCheck,
   X,
 } from "lucide-react";
 import {
@@ -35,18 +38,31 @@ import type {
   Health,
   Incident,
   IncidentSummary,
+  InvestigationCase,
   Investigation,
   Report,
   Review,
+  ExpertResponseOutcome,
 } from "./api";
-import { displayText } from "./presentation";
+import {
+  displayCaseEventDetail,
+  displayCaseEventType,
+  displayText,
+} from "./presentation";
 import { brand } from "./brand";
 
-type Page = "workspace" | "history" | "datasets" | "guide";
+type Page = "workspace" | "cases" | "history" | "datasets" | "guide";
 type Tab = "signals" | "results" | "review" | "chat";
 type Saved = { id: string; incident: string; at: string };
 const message = (e: unknown) =>
   e instanceof Error ? e.message : "요청을 처리하지 못했습니다.";
+const caseStatusLabel: Record<InvestigationCase["status"], string> = {
+  awaiting_evidence: "확인 대기",
+  ready_for_review: "검토 대기",
+  reopened: "재개됨",
+  abstained: "판단 보류",
+  closed: "종료됨",
+};
 function readHistory(): Saved[] {
   try {
     return JSON.parse(localStorage.getItem("investigation-history") || "[]")
@@ -203,6 +219,15 @@ export default function App() {
   >([]);
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
+  const [cases, setCases] = useState<InvestigationCase[]>([]);
+  const [activeCase, setActiveCase] = useState<InvestigationCase | null>(null);
+  const [casesAvailable, setCasesAvailable] = useState(true);
+  const [caseBusy, setCaseBusy] = useState(false);
+  const [taskOutcome, setTaskOutcome] = useState<ExpertResponseOutcome>("confirmed");
+  const [taskResponder, setTaskResponder] = useState("");
+  const [taskComment, setTaskComment] = useState("");
+  const [caseReviewer, setCaseReviewer] = useState("");
+  const [caseComment, setCaseComment] = useState("");
   const revision = useRef(0);
   useEffect(() => {
     const ctl = new AbortController();
@@ -216,6 +241,21 @@ export default function App() {
       })
       .catch(() => {});
     return () => ctl.abort();
+  }, [reload]);
+  useEffect(() => {
+    let alive = true;
+    api<{ cases: InvestigationCase[] }>("/cases")
+      .then((result) => {
+        if (!alive) return;
+        setCases(result.cases);
+        setCasesAvailable(true);
+      })
+      .catch(() => {
+        if (alive) setCasesAvailable(false);
+      });
+    return () => {
+      alive = false;
+    };
   }, [reload]);
   useEffect(() => {
     const ctl = new AbortController();
@@ -313,6 +353,97 @@ export default function App() {
       if (rev === revision.current) setActionError(message(e));
     } finally {
       setBusy(false);
+    }
+  }
+  function replaceCase(updated: InvestigationCase) {
+    setActiveCase(updated);
+    setCases((previous) => [
+      updated,
+      ...previous.filter((item) => item.id !== updated.id),
+    ]);
+  }
+  async function selectCase(nextCase: InvestigationCase) {
+    if (caseBusy) return;
+    setCaseBusy(true);
+    setActionError("");
+    try {
+      const investigation = await api<Investigation>(
+        `/investigations/${encodeURIComponent(nextCase.investigation_id)}`,
+      );
+      setActiveCase(nextCase);
+      setRun(investigation);
+      setEvidenceId(investigation.evidence[0]?.id || "");
+    } catch (e) {
+      setActionError(message(e));
+    } finally {
+      setCaseBusy(false);
+    }
+  }
+  async function openCase() {
+    if (!incident || caseBusy) return;
+    setCaseBusy(true);
+    setActionError("");
+    try {
+      const created = await post<InvestigationCase>(
+        `/incidents/${encodeURIComponent(incident.id)}/cases`,
+        { diagnosis_time: cutoff, question },
+      );
+      const investigation = await api<Investigation>(
+        `/investigations/${encodeURIComponent(created.investigation_id)}`,
+      );
+      replaceCase(created);
+      setRun(investigation);
+      setEvidenceId(investigation.evidence[0]?.id || "");
+      setPage("cases");
+      setNotice("조사 사건을 열고, 확인이 필요한 근거 업무를 생성했습니다.");
+    } catch (e) {
+      setActionError(message(e));
+    } finally {
+      setCaseBusy(false);
+    }
+  }
+  async function respondToEvidenceTask(taskId: string) {
+    if (!activeCase || !taskResponder.trim() || caseBusy) return;
+    setCaseBusy(true);
+    setActionError("");
+    try {
+      const updated = await post<InvestigationCase>(
+        `/cases/${encodeURIComponent(activeCase.id)}/tasks/${encodeURIComponent(taskId)}/responses`,
+        {
+          outcome: taskOutcome,
+          responder: taskResponder.trim(),
+          comment: taskComment,
+        },
+      );
+      replaceCase(updated);
+      setTaskComment("");
+      setNotice("근거 확인 응답이 기록되었습니다. 다음 사건 상태를 확인하세요.");
+    } catch (e) {
+      setActionError(message(e));
+    } finally {
+      setCaseBusy(false);
+    }
+  }
+  async function reviewCase(decision: "approve" | "reject") {
+    if (!activeCase || !caseReviewer.trim() || caseBusy) return;
+    setCaseBusy(true);
+    setActionError("");
+    try {
+      const updated = await post<InvestigationCase>(
+        `/cases/${encodeURIComponent(activeCase.id)}/reviews`,
+        { decision, reviewer: caseReviewer.trim(), comment: caseComment },
+      );
+      replaceCase(updated);
+      setCaseComment("");
+      setNotice(
+        decision === "approve"
+          ? "전문가 승인 후 사건을 종료했습니다."
+          : "검토가 거절되어 추가 관측 업무로 사건을 재개했습니다.",
+      );
+    } catch (e) {
+      setActionError(message(e));
+    } finally {
+      setCaseBusy(false);
     }
   }
   async function openHistory(id: string) {
@@ -421,6 +552,7 @@ export default function App() {
   const evidence = run?.evidence.find((e) => e.id === evidenceId);
   const title = {
     workspace: "조사 워크스페이스",
+    cases: "사건 인박스",
     history: "조사 기록",
     datasets: "데이터셋",
     guide: "사용 안내",
@@ -458,6 +590,7 @@ export default function App() {
           {(
             [
               { id: "workspace", label: "사건 조사", icon: FileSearch },
+              { id: "cases", label: "사건 인박스", icon: ListChecks },
               { id: "history", label: "조사 기록", icon: Clock3 },
               { id: "datasets", label: "데이터셋", icon: Database },
             ] as const
@@ -472,6 +605,11 @@ export default function App() {
               {n.label}
               {n.id === "history" && history.length > 0 && (
                 <span className="nav-count">{history.length}</span>
+              )}
+              {n.id === "cases" && cases.length > 0 && (
+                <span className="nav-count">
+                  {cases.filter((item) => item.status !== "closed").length}
+                </span>
               )}
             </button>
           ))}
@@ -514,6 +652,8 @@ export default function App() {
               <p>
                 {page === "workspace"
                   ? "흩어진 공정 신호를 연결하고, 다음에 확인할 근거를 찾으세요."
+                  : page === "cases"
+                    ? "에이전트가 생성한 근거 확인 업무와 전문가 판단을 하나의 사건으로 추적합니다."
                   : page === "history"
                     ? "이 브라우저에서 실행한 조사를 다시 확인합니다."
                     : page === "datasets"
@@ -1025,6 +1165,23 @@ export default function App() {
                                 <strong>다음 확인 사항</strong>
                                 <p>{displayText(run.next_action)}</p>
                               </div>
+                              <button
+                                className="button primary compact"
+                                disabled={caseBusy || !casesAvailable}
+                                onClick={openCase}
+                                title={
+                                  casesAvailable
+                                    ? undefined
+                                    : "사건 오케스트레이션 API가 아직 연결되지 않았습니다."
+                                }
+                              >
+                                {caseBusy ? (
+                                  <LoaderCircle className="spin" size={15} />
+                                ) : (
+                                  <Bot size={15} />
+                                )}
+                                {caseBusy ? "사건 여는 중" : "확인 업무로 전환"}
+                              </button>
                             </div>
                             {run.warnings.length > 0 && (
                               <details className="disclosure">
@@ -1256,6 +1413,263 @@ export default function App() {
                 </section>
               </div>
             </>
+          )}
+          {page === "cases" && (
+            <section className="caseboard" aria-label="사건 인박스">
+              {!casesAvailable ? (
+                <Empty
+                  title="사건 오케스트레이션을 연결하는 중입니다"
+                  detail="현재 연결된 API에는 사건 상태 기능이 없습니다. 최신 백엔드 배포 후 다시 시도해 주세요."
+                />
+              ) : (
+                <div className="caseboard-grid">
+                  <aside className="case-inbox panel" aria-label="사건 목록">
+                    <div className="case-inbox-heading">
+                      <div>
+                        <span className="eyebrow">CASE INBOX</span>
+                        <h2>진행 중 사건</h2>
+                      </div>
+                      <span className="badge neutral">{cases.length}</span>
+                    </div>
+                    <p>
+                      후보만 보여 주지 않고, 아직 닫히지 않은 증거 업무를 중심으로 봅니다.
+                    </p>
+                    <div className="case-list">
+                      {cases.length ? (
+                        cases.map((item) => (
+                          <button
+                            className={`case-list-item ${activeCase?.id === item.id ? "selected" : ""}`}
+                            key={item.id}
+                            disabled={caseBusy}
+                            onClick={() => void selectCase(item)}
+                            aria-pressed={activeCase?.id === item.id}
+                          >
+                            <div>
+                              <strong>사건 {shortId(item.incident_id)}</strong>
+                              <span className={`case-status ${item.status}`}>
+                                {caseStatusLabel[item.status]}
+                              </span>
+                            </div>
+                            <p>{item.tasks.filter((task) => task.status === "pending").length}개 확인 업무 · {shortId(item.id)}</p>
+                            <time>{new Date(item.updated_at).toLocaleString("ko-KR")}</time>
+                          </button>
+                        ))
+                      ) : (
+                        <Empty
+                          title="열린 사건이 없습니다"
+                          detail="사건 조사에서 근거 분석을 실행한 뒤 ‘확인 업무로 전환’을 선택해 보세요."
+                        />
+                      )}
+                    </div>
+                  </aside>
+                  <section className="case-detail panel" aria-label="사건 상세">
+                    {!activeCase ? (
+                      <Empty
+                        title="사건을 선택하세요"
+                        detail="왼쪽 인박스에서 사건을 고르면 에이전트 실행 이력과 사람 확인 업무를 볼 수 있습니다."
+                      />
+                    ) : (
+                      <>
+                        <div className="case-detail-heading">
+                          <div>
+                            <span className="eyebrow">EVIDENCE-CLOSURE CASE</span>
+                            <h2>사건 {shortId(activeCase.incident_id)}</h2>
+                            <p className="mono">{activeCase.id}</p>
+                          </div>
+                          <span className={`case-status large ${activeCase.status}`}>
+                            {caseStatusLabel[activeCase.status]}
+                          </span>
+                        </div>
+                        <div className="case-next-action">
+                          <Bot size={20} />
+                          <div>
+                            <strong>Case Orchestrator의 다음 단계</strong>
+                            <p>{displayText(activeCase.next_action)}</p>
+                          </div>
+                        </div>
+                        <div className="case-content-grid">
+                          <section className="human-queue">
+                            <div className="section-heading">
+                              <div>
+                                <span className="eyebrow">HUMAN ACTION QUEUE</span>
+                                <h3>전문가 확인 업무</h3>
+                              </div>
+                              <UserRoundCheck size={21} />
+                            </div>
+                            {activeCase.tasks.map((task) => (
+                              <article
+                                className={`evidence-task ${task.status}`}
+                                key={task.id}
+                              >
+                                <div className="task-title">
+                                  <div>
+                                    <span className="task-role">
+                                      {task.requested_role === "operator"
+                                        ? "운영자"
+                                        : task.requested_role === "process_expert"
+                                          ? "공정 전문가"
+                                          : "설비 전문가"}
+                                    </span>
+                                    <h3>{task.title}</h3>
+                                  </div>
+                                  <span className={`badge ${task.status === "pending" ? "warning" : "teal"}`}>
+                                    {task.status === "pending" ? "응답 필요" : "응답 기록됨"}
+                                  </span>
+                                </div>
+                                <p>{task.instructions}</p>
+                                <div className="task-references">
+                                  {task.evidence_ids.length ? (
+                                    task.evidence_ids.map((id) => (
+                                      <button
+                                        key={id}
+                                        onClick={() => {
+                                          setEvidenceId(id);
+                                          setPage("workspace");
+                                          setTab("results");
+                                        }}
+                                      >
+                                        근거 {id}
+                                      </button>
+                                    ))
+                                  ) : (
+                                    <span>추가 관측 요청 · 분석 trace 2–3단계</span>
+                                  )}
+                                </div>
+                                {task.status === "completed" && task.response ? (
+                                  <div className="task-response">
+                                    <strong>{task.response.responder}</strong>
+                                    <span>{task.response.outcome === "confirmed" ? "확인 가능" : task.response.outcome === "refuted" ? "근거 불일치" : "확인 불가"}</span>
+                                    <p>{task.response.comment || "별도 의견 없음"}</p>
+                                  </div>
+                                ) : (
+                                  <div className="task-form">
+                                    <label>
+                                      응답자
+                                      <input
+                                        value={taskResponder}
+                                        onChange={(event) => setTaskResponder(event.target.value)}
+                                        placeholder="이름 또는 담당자 ID"
+                                        maxLength={120}
+                                      />
+                                    </label>
+                                    <label>
+                                      확인 결과
+                                      <select
+                                        value={taskOutcome}
+                                        onChange={(event) => setTaskOutcome(event.target.value as ExpertResponseOutcome)}
+                                      >
+                                        <option value="confirmed">근거 확인 가능</option>
+                                        <option value="refuted">근거 불일치</option>
+                                        <option value="unavailable">현재 확인 불가</option>
+                                      </select>
+                                    </label>
+                                    <label className="task-form-note">
+                                      관찰 또는 문서 위치
+                                      <textarea
+                                        value={taskComment}
+                                        onChange={(event) => setTaskComment(event.target.value)}
+                                        placeholder="확인한 관측값, 문서 위치 또는 확인하지 못한 이유를 남겨 주세요."
+                                        maxLength={2000}
+                                        rows={3}
+                                      />
+                                    </label>
+                                    <button
+                                      className="button primary"
+                                      disabled={!taskResponder.trim() || caseBusy}
+                                      onClick={() => void respondToEvidenceTask(task.id)}
+                                    >
+                                      {caseBusy ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}
+                                      응답 기록
+                                    </button>
+                                  </div>
+                                )}
+                              </article>
+                            ))}
+                          </section>
+                          <aside className="agent-ledger">
+                            <div className="section-heading">
+                              <div>
+                                <span className="eyebrow">AGENT RUN LEDGER</span>
+                                <h3>실행 및 판단 이력</h3>
+                              </div>
+                              <Activity size={20} />
+                            </div>
+                            <ol>
+                              {activeCase.events.map((event) => (
+                                <li key={event.sequence}>
+                                  <span>{String(event.sequence).padStart(2, "0")}</span>
+                                  <div>
+                                    <strong>{displayCaseEventType(event.event_type)}</strong>
+                                    <p>{displayCaseEventDetail(event.detail)}</p>
+                                    <small>{event.actor === "expert" ? "전문가 입력" : "오케스트레이터"} · {new Date(event.created_at).toLocaleString("ko-KR")}</small>
+                                  </div>
+                                </li>
+                              ))}
+                            </ol>
+                          </aside>
+                        </div>
+                        {activeCase.status === "ready_for_review" && (
+                          <section className="case-review-gate">
+                            <div>
+                              <span className="eyebrow">EXPLICIT REVIEW REQUIRED</span>
+                              <h3>최종 검토가 남아 있습니다</h3>
+                              <p>근거 확인 응답은 원인을 자동 확정하지 않습니다. 담당 전문가가 명시적으로 승인 또는 거절해야 사건 상태가 바뀝니다.</p>
+                            </div>
+                            <div className="case-review-form">
+                              <input
+                                value={caseReviewer}
+                                onChange={(event) => setCaseReviewer(event.target.value)}
+                                placeholder="최종 검토자"
+                                maxLength={120}
+                              />
+                              <textarea
+                                value={caseComment}
+                                onChange={(event) => setCaseComment(event.target.value)}
+                                placeholder="검토 의견 (선택)"
+                                maxLength={2000}
+                                rows={2}
+                              />
+                              <div className="button-row">
+                                <button
+                                  className="button secondary"
+                                  disabled={!caseReviewer.trim() || caseBusy}
+                                  onClick={() => void reviewCase("reject")}
+                                >
+                                  재개 요청
+                                </button>
+                                <button
+                                  className="button primary"
+                                  disabled={!caseReviewer.trim() || caseBusy}
+                                  onClick={() => void reviewCase("approve")}
+                                >
+                                  {caseBusy ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}
+                                  검토 승인 후 종료
+                                </button>
+                              </div>
+                            </div>
+                          </section>
+                        )}
+                        {activeCase.reviews.length > 0 && (
+                          <section className="case-review-history">
+                            <h3>최종 검토 이력</h3>
+                            {activeCase.reviews.map((review) => (
+                              <div key={`${review.reviewer}-${review.reviewed_at}`}>
+                                <strong>{review.reviewer}</strong>
+                                <span className={`badge ${review.decision === "approve" ? "teal" : "warning"}`}>
+                                  {review.decision === "approve" ? "승인" : "거절"}
+                                </span>
+                                <time>{new Date(review.reviewed_at).toLocaleString("ko-KR")}</time>
+                                <p>{review.comment || "별도 의견 없음"}</p>
+                              </div>
+                            ))}
+                          </section>
+                        )}
+                      </>
+                    )}
+                  </section>
+                </div>
+              )}
+            </section>
           )}
           {page === "history" && (
             <section className="panel standalone">

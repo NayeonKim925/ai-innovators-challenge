@@ -41,6 +41,7 @@ def test_health_exposes_runtime_safety_configuration(tmp_path: Path, monkeypatch
     body = client.get("/api/health").json()
 
     assert body["storage"] == "in_memory"
+    assert body["case_storage"] == "in_memory"
     assert body["llm_timeout_s"] == 20.0
     assert body["guardrail_configured"] is False
 

@@ -237,6 +237,48 @@ test("requires same-origin Origin header for proxied POST requests", async () =>
   );
 });
 
+test("proxies the case-orchestration API contract", async () => {
+  await withBackend(
+    (request, response) => {
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ ok: true }));
+    },
+    async (backendUrl, requests) => {
+      await withPublicDir(async (publicDir) => {
+        await withApp({ backendUrl, publicDir }, async (origin) => {
+          const routes = [
+            { method: "GET", path: "/api/cases" },
+            { method: "GET", path: "/api/cases/case-1" },
+            { method: "POST", path: "/api/incidents/1/cases" },
+            {
+              method: "POST",
+              path: "/api/cases/case-1/tasks/task-1/responses",
+            },
+            { method: "POST", path: "/api/cases/case-1/reviews" },
+          ];
+
+          for (const route of routes) {
+            const response = await fetch(`${origin}${route.path}`, {
+              body: route.method === "POST" ? "{}" : undefined,
+              headers:
+                route.method === "POST"
+                  ? { "content-type": "application/json", origin }
+                  : undefined,
+              method: route.method,
+            });
+            assert.equal(response.status, 200, `${route.method} ${route.path}`);
+          }
+
+          assert.deepEqual(
+            requests.map((request) => request.url),
+            routes.map((route) => route.path),
+          );
+        });
+      });
+    },
+  );
+});
+
 test("accepts POST through an ingress when Origin and Host match", async () => {
   await withBackend(
     (request, response) => {

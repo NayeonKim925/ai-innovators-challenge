@@ -23,6 +23,7 @@ LAMBDA_ROLE_NAME = "mfg-investigation-api-lambda-role"
 API_NAME = "mfg-investigation-api"
 LLM_JOB_QUEUE_NAME = os.getenv("LLM_JOB_QUEUE_NAME", "mfg-investigation-narrative-jobs")
 DDB_TABLE_NAME = os.getenv("INVESTIGATION_DDB_TABLE", "mfg-investigations")
+CASE_DDB_TABLE_NAME = os.getenv("CASE_DDB_TABLE", "mfg-investigation-cases")
 DEPLOY_ASYNC_LLM = os.getenv("DEPLOY_ASYNC_LLM", "true").lower() in {"1", "true", "yes"}
 API_AUTH_TOKEN = os.getenv("API_AUTH_TOKEN", "")
 BEDROCK_MODEL_ARN = os.getenv("BEDROCK_MODEL_ARN", "")
@@ -81,10 +82,16 @@ def ensure_lambda_role() -> str:
                     },
                     {
                         "Effect": "Allow",
-                        "Action": ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem"],
-                        "Resource": (
-                            f"arn:aws:dynamodb:{REGION}:{ACCOUNT_ID}:table/{DDB_TABLE_NAME}"
-                        ),
+                        "Action": [
+                            "dynamodb:GetItem",
+                            "dynamodb:PutItem",
+                            "dynamodb:UpdateItem",
+                            "dynamodb:Scan",
+                        ],
+                        "Resource": [
+                            f"arn:aws:dynamodb:{REGION}:{ACCOUNT_ID}:table/{DDB_TABLE_NAME}",
+                            f"arn:aws:dynamodb:{REGION}:{ACCOUNT_ID}:table/{CASE_DDB_TABLE_NAME}",
+                        ],
                     },
                     {
                         "Effect": "Allow",
@@ -131,6 +138,29 @@ def ensure_investigation_table() -> None:
     print(f"DynamoDB table {DDB_TABLE_NAME} is ready")
 
 
+def ensure_case_table() -> None:
+    """Create the separate case-state table used by the Lambda API."""
+
+    dynamodb = boto3.client("dynamodb", region_name=REGION)
+    try:
+        dynamodb.describe_table(TableName=CASE_DDB_TABLE_NAME)
+        print(f"DynamoDB table {CASE_DDB_TABLE_NAME} already exists")
+    except dynamodb.exceptions.ResourceNotFoundException:
+        dynamodb.create_table(
+            TableName=CASE_DDB_TABLE_NAME,
+            KeySchema=[{"AttributeName": "case_id", "KeyType": "HASH"}],
+            AttributeDefinitions=[{"AttributeName": "case_id", "AttributeType": "S"}],
+            BillingMode="PAY_PER_REQUEST",
+        )
+        print(f"created DynamoDB table {CASE_DDB_TABLE_NAME}")
+    waiter = dynamodb.get_waiter("table_exists")
+    waiter.wait(
+        TableName=CASE_DDB_TABLE_NAME,
+        WaiterConfig={"Delay": 2, "MaxAttempts": 30},
+    )
+    print(f"DynamoDB table {CASE_DDB_TABLE_NAME} is ready")
+
+
 def ensure_job_queue() -> tuple[str, str]:
     sqs = boto3.client("sqs", region_name=REGION)
     response = sqs.create_queue(
@@ -169,6 +199,7 @@ def _runtime_environment(queue_url: str) -> dict[str, str]:
         "CORS_ORIGINS": os.getenv("CORS_ORIGINS", "http://localhost:8501"),
         "DEPLOYMENT_ENV": "aws",
         "INVESTIGATION_DDB_TABLE": DDB_TABLE_NAME,
+        "CASE_DDB_TABLE": CASE_DDB_TABLE_NAME,
         "LLM_JOB_QUEUE_URL": queue_url,
         "BEDROCK_REGION": REGION,
         "BEDROCK_MODEL_ID": os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6"),
@@ -331,6 +362,10 @@ def get_api_endpoint(api_id: str) -> str:
 
 
 if __name__ == "__main__":
+    if CASE_DDB_TABLE_NAME == DDB_TABLE_NAME:
+        raise SystemExit(
+            "CASE_DDB_TABLE must differ from INVESTIGATION_DDB_TABLE: their primary keys differ."
+        )
     if not API_AUTH_TOKEN:
         raise SystemExit("Set API_AUTH_TOKEN before deploying a public API.")
     if not BEDROCK_MODEL_ARN:
@@ -342,6 +377,7 @@ if __name__ == "__main__":
     role_arn = ensure_lambda_role()
     ensure_ecr_repo()
     ensure_investigation_table()
+    ensure_case_table()
     if DEPLOY_ASYNC_LLM:
         queue_url, queue_arn = ensure_job_queue()
     else:

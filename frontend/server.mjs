@@ -44,10 +44,18 @@ const API_ROUTE_ALLOWLIST = [
   { method: "GET", pattern: /^\/api\/incidents$/ },
   { method: "GET", pattern: /^\/api\/incidents\/[^/]+$/ },
   { method: "POST", pattern: /^\/api\/incidents\/[^/]+\/investigations$/ },
+  { method: "POST", pattern: /^\/api\/incidents\/[^/]+\/cases$/ },
   { method: "GET", pattern: /^\/api\/investigations\/[^/]+$/ },
   { method: "POST", pattern: /^\/api\/investigations\/[^/]+\/reviews$/ },
   { method: "GET", pattern: /^\/api\/investigations\/[^/]+\/report$/ },
   { method: "POST", pattern: /^\/api\/investigations\/[^/]+\/chat$/ },
+  { method: "GET", pattern: /^\/api\/cases$/ },
+  { method: "GET", pattern: /^\/api\/cases\/[^/]+$/ },
+  {
+    method: "POST",
+    pattern: /^\/api\/cases\/[^/]+\/tasks\/[^/]+\/responses$/,
+  },
+  { method: "POST", pattern: /^\/api\/cases\/[^/]+\/reviews$/ },
 ];
 
 function getConfig(overrides = {}) {

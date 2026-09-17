@@ -68,6 +68,61 @@ export interface Report {
   result: Omit<Investigation, "investigation_id">;
   reviews: Review[];
 }
+export type CaseStatus =
+  | "awaiting_evidence"
+  | "ready_for_review"
+  | "reopened"
+  | "abstained"
+  | "closed";
+export type ExpertResponseOutcome = "confirmed" | "refuted" | "unavailable";
+export interface ExpertTaskResponse {
+  outcome: ExpertResponseOutcome;
+  comment: string;
+  responder: string;
+}
+export interface EvidenceTask {
+  id: string;
+  kind: "verify_candidate" | "collect_observation";
+  status: "pending" | "completed";
+  requested_role: "operator" | "process_expert" | "equipment_expert";
+  title: string;
+  instructions: string;
+  candidate_signal: string | null;
+  evidence_ids: string[];
+  trace_steps: number[];
+  response: ExpertTaskResponse | null;
+  created_at: string;
+  completed_at: string | null;
+}
+export interface CaseEvent {
+  sequence: number;
+  event_type: string;
+  detail: string;
+  actor: "case_orchestrator" | "expert";
+  evidence_ids: string[];
+  trace_steps: number[];
+  created_at: string;
+}
+export interface CaseReview {
+  decision: "approve" | "reject";
+  comment: string;
+  reviewer: string;
+  reviewed_at: string;
+}
+export interface InvestigationCase {
+  id: string;
+  incident_id: string;
+  dataset: string;
+  investigation_id: string;
+  status: CaseStatus;
+  version: number;
+  next_action: string;
+  tasks: EvidenceTask[];
+  events: CaseEvent[];
+  reviews: CaseReview[];
+  created_at: string;
+  updated_at: string;
+}
 export interface ChatResponse {
   answer: string;
   grounded_evidence_ids: string[];
