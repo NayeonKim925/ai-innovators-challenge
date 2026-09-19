@@ -1,4 +1,4 @@
-.PHONY: install api frontend test lint bootstrap-causrca prepare-causrca validate-data benchmark-causrca
+.PHONY: install api frontend frontend-react test lint bootstrap-causrca prepare-causrca validate-data benchmark-causrca
 
 install:
 	python -m pip install -e '.[dev]'
@@ -6,8 +6,13 @@ install:
 api:
 	uvicorn app.main:app --app-dir backend --reload --port 8000
 
+# Legacy comparison/recovery UI. The Continuum release path is frontend-react.
 frontend:
 	streamlit run frontend/app.py
+
+frontend-react:
+	npm --prefix frontend run build
+	npm --prefix frontend start
 
 test:
 	python -m pytest -q

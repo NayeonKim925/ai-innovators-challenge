@@ -6,7 +6,7 @@
 
 - 네이비 사이드바 + 청록 실행 버튼 + 밝은 회색 캔버스. 상태에만 제한적으로 색을 쓴다.
 - Pretendard Variable 로컬 제공, Lucide 아이콘, 생성형 이미지로 만든 열린 육각형/신호 연결 로고.
-- 후속 브랜딩에서 **Cluephase(클루페이즈)** 적용. “신호를 근거로, 근거를 판단으로.” 이름은 제품 작업명이며 상표·도메인 사용 가능성 검토는 미완료다. [브랜드 가이드](BRAND.md), [브랜드 보드](brand-board.html).
+- Continuum(컨티뉴엄)은 다음 교대 담당자가 같은 Case에서 분석 근거·미확인 항목·사람의 판단을 이어 검토하는 제품 작업명이다. 상표·도메인 사용 가능성 검토는 미완료다. [브랜드 가이드](BRAND.md), [브랜드 보드](brand-board.html).
 - Lazyweb quick-references 스킬/MCP를 먼저 사용했으나 도구 목록 이후 HTTP429로 검색 불가. Linear, Metabase, Grafana 공식 자료로 대체했으며 Lazyweb 검색 결과로 표기하지 않는다.
 - [DESIGN.md](../DESIGN.md)가 디자인 원본이며 [레퍼런스 기록](../.lazyweb/quick-references/investigation-2026-09-17/report.md)에 채택·제외 이유를 남겼다.
 
@@ -45,11 +45,11 @@
 - 초기 React 전환 이미지 digest: `sha256:e45385f6c1c1c10e7b08c2560a6f77171cdd1afa973ef7281e865ce75314fc27`. 브랜딩 적용 버전은 아래 기록을 따른다.
 - 기본 카나리 배포/롤백 보호는 유지했다. 공개 UI 검증 이후 안정화 대기까지 종료되어 AWS 서비스 배포 상태 `SUCCESSFUL`을 최종 확인했다.
 
-### Cluephase 브랜딩 반영 · 2026-09-17
+### Continuum 브랜딩 반영 · 2026-09-19
 
 - 프론트 이미지만 교체했으며 백엔드·리소스명·기존 비밀 환경값은 유지했다.
 - 적용 이미지: `sha256:7be68842c6549ad75ff239388ef0c5a0f08a52b856009bf0483b84f8db77a8c6`.
-- 공개 URL에서 Cluephase 제목·접근 가능한 브랜드 링크, HTTP200, 실제 조사 POST200, 후보1개/근거1개, 브라우저 오류0개를 검증했다. LLM은 호출하지 않았다.
+- 공개 URL의 이전 브랜드 검증은 2026-09-17 당시 배포 기록이다. 현재 공개 배포가 Continuum 브랜드인지에 대한 검증은 이 문서가 증명하지 않는다.
 - 트래픽100% 전환 및 안정화 검사가 끝난 뒤 AWS 배포 `SUCCESSFUL` 확인. [배포 화면](ui/deployed-workspace.png)을 새 버전으로 갱신했다.
 - 코드·브랜드 가이드 커밋은 `bb4ecd8`. GitHub push는 이번 작업에 포함하지 않았다.
 

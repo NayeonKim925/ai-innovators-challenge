@@ -1,4 +1,6 @@
-# 구현 계획서 · 제조 이상 조사 서비스
+# 구현 계획서 · Continuum
+
+> 제품 정의와 연속성 기능의 단일 실행 기준은 [CONTINUUM_DEVELOPMENT_PLAN.md](CONTINUUM_DEVELOPMENT_PLAN.md)와 [PRODUCT.md](PRODUCT.md)다.
 
 > 문서 상태: `실행 기준안` · 마지막 갱신: 2026-09-17
 > 대상: 팀원, 구현 에이전트, 발표·평가 담당자

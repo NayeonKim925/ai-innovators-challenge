@@ -7,10 +7,13 @@ closed after the requested evidence work and a separate expert review.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import uuid
 from datetime import UTC, datetime
 
 from ..domain import (
+    AnalysisRun,
     CaseEvent,
     CaseReviewDecision,
     CaseStatus,
@@ -18,18 +21,36 @@ from ..domain import (
     EvidenceTaskStatus,
     ExpertResponseOutcome,
     ExpertTaskResponse,
+    Handover,
+    HandoverFinding,
+    HandoverSnapshot,
+    HandoverStatus,
+    HypothesisJudgment,
+    HypothesisTrack,
     Incident,
     InvestigationCase,
     InvestigationResult,
+    OpenItem,
+    OpenItemStatus,
+    OperatorObservation,
     StoredCaseReview,
 )
-from ..repositories.cases import CaseNotFoundError, CaseRepository
+from ..repositories.cases import CaseConflictError, CaseNotFoundError, CaseRepository
 from ..repositories.investigation_store import InvestigationRepository
+from .handover_linter import has_blocking_findings, lint_case
 from .investigations import run_investigation
 
 
 class CaseTransitionError(ValueError):
     """Raised when a requested human action violates the case state contract."""
+
+
+class HandoverLintError(CaseTransitionError):
+    """Raised when blocking deterministic findings prevent publication."""
+
+    def __init__(self, findings: list[HandoverFinding]) -> None:
+        self.findings = findings
+        super().__init__("Handover has blocking findings")
 
 
 def _now() -> str:
@@ -102,6 +123,34 @@ def _first_task_for(
     )
 
 
+def _open_item_for_task(task: EvidenceTask, created_at: str) -> OpenItem:
+    return OpenItem(
+        id=f"item_{uuid.uuid4().hex}",
+        title=task.title,
+        requested_role=task.requested_role,
+        status=OpenItemStatus.NOT_STARTED,
+        evidence_ids=task.evidence_ids,
+        created_at=created_at,
+        updated_at=created_at,
+    )
+
+
+def _hypotheses_for_result(
+    result: InvestigationResult, run_id: str, updated_at: str
+) -> list[HypothesisTrack]:
+    return [
+        HypothesisTrack(
+            id=f"hyp_{uuid.uuid4().hex}",
+            run_id=run_id,
+            candidate_signal=candidate.signal,
+            evidence_ids=candidate.evidence_ids,
+            updated_at=updated_at,
+        )
+        for candidate in result.candidates
+        if candidate.status == "candidate"
+    ]
+
+
 def open_case(
     *,
     incident: Incident,
@@ -116,6 +165,16 @@ def open_case(
     investigation_id = uuid.uuid4().hex
     investigations.save(investigation_id, result)
     created_at = _now()
+    run = AnalysisRun(
+        id=f"run_{uuid.uuid4().hex}",
+        investigation_id=investigation_id,
+        incident_id=incident.id,
+        dataset=incident.source_dataset,
+        diagnosis_time=diagnosis_time,
+        algorithm_version="deterministic-investigation-v1",
+        created_by="case_orchestrator",
+        created_at=created_at,
+    )
     candidate_exists = any(item.status == "candidate" for item in result.candidates)
     case = InvestigationCase(
         id=f"case_{uuid.uuid4().hex}",
@@ -123,6 +182,9 @@ def open_case(
         dataset=incident.source_dataset,
         investigation_id=investigation_id,
         status=CaseStatus.AWAITING_EVIDENCE,
+        current_run_id=run.id,
+        analysis_runs=[run],
+        hypotheses=_hypotheses_for_result(result, run.id, created_at),
         next_action=(
             "Ask the assigned expert to verify the top evidence-linked candidate."
             if candidate_exists
@@ -144,7 +206,9 @@ def open_case(
         update={"events": [analysis_event], "updated_at": analysis_event.created_at}
     )
     task = _first_task_for(result, case, created_at)
-    case = case.model_copy(update={"tasks": [task]})
+    item = _open_item_for_task(task, created_at)
+    task = task.model_copy(update={"open_item_id": item.id})
+    case = case.model_copy(update={"tasks": [task], "open_items": [item]})
     case = _append_event(
         case,
         event_type="evidence_task_created",
@@ -194,10 +258,53 @@ def _complete_task(
     return updated, completed
 
 
+def _update_item_from_task(
+    case: InvestigationCase,
+    task: EvidenceTask,
+    response: ExpertTaskResponse,
+) -> InvestigationCase:
+    if task.open_item_id is None:
+        return case
+    item = next((item for item in case.open_items if item.id == task.open_item_id), None)
+    if item is None:
+        return case
+    status = (
+        OpenItemStatus.UNAVAILABLE
+        if response.outcome is ExpertResponseOutcome.UNAVAILABLE
+        else OpenItemStatus.NOT_RECORDED
+        if task.kind == "collect_observation"
+        else OpenItemStatus.RESOLVED
+    )
+    updated_item = item.model_copy(
+        update={
+            "status": status,
+            "completion_note": response.comment,
+            "updated_at": _now(),
+        }
+    )
+    return case.model_copy(
+        update={
+            "open_items": [
+                updated_item if current.id == updated_item.id else current
+                for current in case.open_items
+            ],
+            "updated_at": updated_item.updated_at,
+        }
+    )
+
+
 def _add_observation_task(case: InvestigationCase) -> InvestigationCase:
     created_at = _now()
     task = _observation_task(case, created_at)
-    updated = case.model_copy(update={"tasks": [*case.tasks, task], "updated_at": created_at})
+    item = _open_item_for_task(task, created_at)
+    task = task.model_copy(update={"open_item_id": item.id})
+    updated = case.model_copy(
+        update={
+            "tasks": [*case.tasks, task],
+            "open_items": [*case.open_items, item],
+            "updated_at": created_at,
+        }
+    )
     return _append_event(
         updated,
         event_type="evidence_task_created",
@@ -233,9 +340,12 @@ def respond_to_task(
     """Record an expert response and deterministically choose the next safe state."""
 
     case = get_case(case_id, cases)
+    if response.expected_version is not None and response.expected_version != case.version:
+        raise CaseConflictError(case_id)
     if case.status not in {CaseStatus.AWAITING_EVIDENCE, CaseStatus.REOPENED}:
         raise CaseTransitionError("This case is not awaiting an evidence response")
     updated, task = _complete_task(case, task_id, response)
+    updated = _update_item_from_task(updated, task, response)
     updated = _append_event(
         updated,
         event_type="expert_response_recorded",
@@ -311,6 +421,544 @@ def respond_to_task(
     return _persist_updated_case(current=case, updated=updated, cases=cases)
 
 
+def append_operator_observation(
+    *,
+    case_id: str,
+    original_text: str,
+    author: str,
+    observed_at: str | None,
+    scope: str,
+    source_location: str,
+    provenance: str,
+    expected_version: int,
+    cases: CaseRepository,
+) -> InvestigationCase:
+    case = get_case(case_id, cases)
+    if case.version != expected_version:
+        raise CaseConflictError(case_id)
+    recorded_at = _now()
+    observation = OperatorObservation(
+        id=f"obs_{uuid.uuid4().hex}",
+        original_text=original_text,
+        author=author,
+        observed_at=observed_at,
+        recorded_at=recorded_at,
+        scope=scope,
+        source_location=source_location,
+        provenance=provenance,
+        approved=True,
+    )
+    updated = case.model_copy(
+        update={
+            "observations": [*case.observations, observation],
+            "next_action": (
+                "Review the new observation and decide whether a new analysis Run is needed."
+            ),
+            "updated_at": recorded_at,
+        }
+    )
+    updated = _append_event(
+        updated,
+        event_type="observation_recorded",
+        detail=(
+            f"Recorded operator observation {observation.id}; "
+            "it is not a machine sensor reading."
+        ),
+        actor="operator",
+    )
+    return _persist_updated_case(current=case, updated=updated, cases=cases)
+
+
+def add_analysis_run(
+    *,
+    case_id: str,
+    incident: Incident,
+    diagnosis_time: float,
+    question: str,
+    created_by: str,
+    expected_version: int,
+    investigations: InvestigationRepository,
+    cases: CaseRepository,
+) -> InvestigationCase:
+    case = get_case(case_id, cases)
+    if case.version != expected_version:
+        raise CaseConflictError(case_id)
+    if case.status is CaseStatus.CLOSED:
+        raise CaseTransitionError("A closed case cannot receive a new analysis run")
+    result = run_investigation(incident, diagnosis_time, question, include_llm_narrative=False)
+    investigation_id = uuid.uuid4().hex
+    investigations.save(investigation_id, result)
+    created_at = _now()
+    run = AnalysisRun(
+        id=f"run_{uuid.uuid4().hex}",
+        investigation_id=investigation_id,
+        incident_id=incident.id,
+        dataset=incident.source_dataset,
+        diagnosis_time=diagnosis_time,
+        algorithm_version="deterministic-investigation-v1",
+        created_by=created_by,
+        created_at=created_at,
+    )
+    task = _first_task_for(result, case, created_at)
+    item = _open_item_for_task(task, created_at)
+    task = task.model_copy(update={"open_item_id": item.id})
+    updated = case.model_copy(
+        update={
+            "current_run_id": run.id,
+            "analysis_runs": [*case.analysis_runs, run],
+            "hypotheses": [
+                *case.hypotheses,
+                *_hypotheses_for_result(result, run.id, created_at),
+            ],
+            "tasks": [*case.tasks, task],
+            "open_items": [*case.open_items, item],
+            "status": CaseStatus.AWAITING_EVIDENCE,
+            "next_action": "Review the latest analysis Run and resolve its linked Open Item.",
+            "updated_at": created_at,
+        }
+    )
+    updated = _append_event(
+        updated,
+        event_type="analysis_run_added",
+        detail=(
+            f"Added immutable deterministic analysis Run {run.id}; "
+            "previous Runs were preserved."
+        ),
+        actor="analyst",
+        trace_steps=[event.step for event in result.trace],
+    )
+    return _persist_updated_case(current=case, updated=updated, cases=cases)
+
+
+def create_open_item(
+    *,
+    case_id: str,
+    title: str,
+    requested_role: str,
+    assignee: str | None,
+    due_at: str | None,
+    evidence_ids: list[str],
+    expected_version: int,
+    investigations: InvestigationRepository,
+    cases: CaseRepository,
+) -> InvestigationCase:
+    case = get_case(case_id, cases)
+    if case.version != expected_version:
+        raise CaseConflictError(case_id)
+    known_evidence = {
+        evidence.id
+        for run in case.analysis_runs
+        for result in [investigations.get(run.investigation_id)]
+        if result is not None
+        for evidence in result.evidence
+    }
+    if any(evidence_id not in known_evidence for evidence_id in evidence_ids):
+        raise CaseTransitionError("Open item references unknown evidence")
+    item = OpenItem(
+        id=f"item_{uuid.uuid4().hex}",
+        title=title,
+        requested_role=requested_role,  # type: ignore[arg-type]
+        assignee=assignee,
+        due_at=due_at,
+        evidence_ids=evidence_ids,
+        created_at=_now(),
+        updated_at=_now(),
+    )
+    updated = case.model_copy(
+        update={"open_items": [*case.open_items, item], "updated_at": item.updated_at}
+    )
+    updated = _append_event(
+        updated,
+        event_type="open_item_updated",
+        detail=f"Created Open Item {item.id} for {item.requested_role}.",
+        actor="operator",
+        evidence_ids=item.evidence_ids,
+    )
+    return _persist_updated_case(current=case, updated=updated, cases=cases)
+
+
+def update_open_item(
+    *,
+    case_id: str,
+    item_id: str,
+    status: OpenItemStatus,
+    assignee: str | None,
+    hold_reason: str,
+    completion_note: str,
+    observation_ids: list[str],
+    expected_version: int,
+    cases: CaseRepository,
+) -> InvestigationCase:
+    case = get_case(case_id, cases)
+    if case.version != expected_version:
+        raise CaseConflictError(case_id)
+    item = next((item for item in case.open_items if item.id == item_id), None)
+    if item is None:
+        raise CaseTransitionError("Open item not found")
+    if status is OpenItemStatus.RESOLVED and not completion_note.strip() and not observation_ids:
+        raise CaseTransitionError("Resolved open item requires a completion note or observation")
+    known_observations = {observation.id for observation in case.observations}
+    if any(observation_id not in known_observations for observation_id in observation_ids):
+        raise CaseTransitionError("Open item references an unknown observation")
+    updated_at = _now()
+    changed = item.model_copy(
+        update={
+            "status": status,
+            "assignee": assignee,
+            "hold_reason": hold_reason,
+            "completion_note": completion_note,
+            "observation_ids": observation_ids,
+            "updated_at": updated_at,
+        }
+    )
+    updated = case.model_copy(
+        update={
+            "open_items": [
+                changed if current.id == item_id else current
+                for current in case.open_items
+            ],
+            "updated_at": updated_at,
+        }
+    )
+    updated = _append_event(
+        updated,
+        event_type="open_item_updated",
+        detail=f"Updated Open Item {item_id} to {status.value}.",
+        actor="operator",
+        evidence_ids=changed.evidence_ids,
+    )
+    return _persist_updated_case(current=case, updated=updated, cases=cases)
+
+
+def assess_hypothesis(
+    *,
+    case_id: str,
+    hypothesis_id: str,
+    judgment: HypothesisJudgment,
+    updated_by: str,
+    change_reason: str,
+    supporting_observation_ids: list[str],
+    opposing_evidence_ids: list[str],
+    expected_version: int,
+    investigations: InvestigationRepository,
+    cases: CaseRepository,
+) -> InvestigationCase:
+    case = get_case(case_id, cases)
+    if case.version != expected_version:
+        raise CaseConflictError(case_id)
+    hypothesis = next((item for item in case.hypotheses if item.id == hypothesis_id), None)
+    if hypothesis is None:
+        raise CaseTransitionError("Hypothesis track not found")
+    known_observations = {observation.id for observation in case.observations}
+    known_evidence = {
+        evidence.id
+        for run in case.analysis_runs
+        for result in [investigations.get(run.investigation_id)]
+        if result is not None
+        for evidence in result.evidence
+    }
+    if any(evidence_id not in known_evidence for evidence_id in opposing_evidence_ids):
+        raise CaseTransitionError("Hypothesis references unknown evidence")
+    if any(item_id not in known_observations for item_id in supporting_observation_ids):
+        raise CaseTransitionError("Hypothesis references an unknown observation")
+    updated_at = _now()
+    changed = hypothesis.model_copy(
+        update={
+            "judgment": judgment,
+            "updated_by": updated_by,
+            "change_reason": change_reason,
+            "supporting_observation_ids": supporting_observation_ids,
+            "opposing_evidence_ids": opposing_evidence_ids,
+            "updated_at": updated_at,
+        }
+    )
+    updated = case.model_copy(
+        update={
+            "hypotheses": [
+                changed if current.id == hypothesis_id else current
+                for current in case.hypotheses
+            ],
+            "updated_at": updated_at,
+        }
+    )
+    updated = _append_event(
+        updated,
+        event_type="hypothesis_assessed",
+        detail=(
+            f"Recorded human assessment {judgment.value} for candidate "
+            f"{hypothesis.candidate_signal}; this is not cause confirmation."
+        ),
+        actor="expert",
+        evidence_ids=changed.evidence_ids,
+    )
+    return _persist_updated_case(current=case, updated=updated, cases=cases)
+
+
+def _build_handover_snapshot(
+    case: InvestigationCase,
+    findings: list[HandoverFinding],
+) -> HandoverSnapshot:
+    payload = {
+        "case_id": case.id,
+        "source_case_version": case.version,
+        "current_run_id": case.current_run_id,
+        "current_run": next(
+            (
+                run.model_dump(mode="json")
+                for run in case.analysis_runs
+                if run.id == case.current_run_id
+            ),
+            None,
+        ),
+        "hypotheses": [item.model_dump(mode="json") for item in case.hypotheses],
+        "open_items": [item.model_dump(mode="json") for item in case.open_items],
+        "observations": [item.model_dump(mode="json") for item in case.observations],
+        "constraints": [case.next_action],
+    }
+    evidence_ids = sorted({
+        evidence_id
+        for hypothesis in case.hypotheses
+        for evidence_id in hypothesis.evidence_ids
+    })
+    snapshot_hash = hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    ).hexdigest()
+    return HandoverSnapshot(
+        id=f"snapshot_{uuid.uuid4().hex}",
+        case_id=case.id,
+        source_case_version=case.version,
+        snapshot_hash=snapshot_hash,
+        current_run_id=case.current_run_id,
+        hypothesis_ids=[item.id for item in case.hypotheses],
+        evidence_ids=evidence_ids,
+        open_item_ids=[item.id for item in case.open_items],
+        observation_ids=[item.id for item in case.observations],
+        constraints=[case.next_action],
+        payload=payload,
+        findings=findings,
+        created_at=_now(),
+    )
+
+
+def check_handover(
+    *,
+    case_id: str,
+    expected_version: int,
+    investigations: InvestigationRepository,
+    cases: CaseRepository,
+) -> list[HandoverFinding]:
+    case = get_case(case_id, cases)
+    if case.version != expected_version:
+        raise CaseConflictError(case_id)
+    return lint_case(case, investigations)
+
+
+def publish_handover(
+    *,
+    case_id: str,
+    sender: str,
+    receiver: str,
+    exception_reason: str,
+    expected_version: int,
+    investigations: InvestigationRepository,
+    cases: CaseRepository,
+) -> InvestigationCase:
+    case = get_case(case_id, cases)
+    if case.version != expected_version:
+        raise CaseConflictError(case_id)
+    findings = lint_case(case, investigations)
+    if has_blocking_findings(findings) and not exception_reason.strip():
+        raise HandoverLintError(findings)
+    snapshot = _build_handover_snapshot(case, findings)
+    published_at = _now()
+    handover = Handover(
+        id=f"handover_{uuid.uuid4().hex}",
+        sender=sender,
+        receiver=receiver,
+        # The packet represents the pre-publication Case state.
+        source_case_version=case.version,
+        snapshot_id=snapshot.id,
+        exception_reason=exception_reason,
+        created_at=published_at,
+        published_at=published_at,
+    )
+    updated = case.model_copy(
+        update={
+            "handover_snapshots": [*case.handover_snapshots, snapshot],
+            "handovers": [*case.handovers, handover],
+            "current_handover_id": handover.id,
+            "next_action": (
+                "The receiver must review the handover Snapshot and accept or request changes."
+            ),
+            "updated_at": published_at,
+        }
+    )
+    updated = _append_event(
+        updated,
+        event_type="handover_published",
+        detail=(
+            f"Published handover {handover.id} from {sender} to {receiver}; "
+            f"Snapshot {snapshot.id} is fixed to Case version {handover.source_case_version}."
+        ),
+        actor="operator",
+    )
+    if exception_reason.strip():
+        updated = _append_event(
+            updated,
+            event_type="handover_linted",
+            detail=f"Published with an explicit exception: {exception_reason}",
+            actor="operator",
+        )
+    return _persist_updated_case(current=case, updated=updated, cases=cases)
+
+
+def accept_handover(
+    *,
+    case_id: str,
+    handover_id: str,
+    snapshot_id: str,
+    accepted_by: str,
+    expected_version: int,
+    cases: CaseRepository,
+) -> InvestigationCase:
+    case = get_case(case_id, cases)
+    if case.version != expected_version:
+        raise CaseConflictError(case_id)
+    handover = next((item for item in case.handovers if item.id == handover_id), None)
+    if handover is None:
+        raise CaseTransitionError("Handover not found")
+    if handover.snapshot_id != snapshot_id:
+        raise CaseTransitionError("Snapshot ID does not match the published handover")
+    if handover.status is not HandoverStatus.PUBLISHED:
+        raise CaseTransitionError("Only a published handover can be accepted")
+    if handover.source_case_version + 1 != case.version:
+        superseded = handover.model_copy(update={"status": HandoverStatus.SUPERSEDED})
+        updated = case.model_copy(
+            update={
+                "handovers": [
+                    superseded if item.id == handover_id else item
+                    for item in case.handovers
+                ],
+                "updated_at": _now(),
+            }
+        )
+        updated = _append_event(
+            updated,
+            event_type="handover_superseded",
+            detail="The published Snapshot is stale because the Case changed after publication.",
+            actor="system",
+        )
+        _persist_updated_case(current=case, updated=updated, cases=cases)
+        raise CaseTransitionError("Published Snapshot is stale and must be reviewed again")
+    accepted_at = _now()
+    accepted = handover.model_copy(
+        update={
+            "status": HandoverStatus.ACCEPTED,
+            "accepted_at": accepted_at,
+            "accepted_by": accepted_by,
+        }
+    )
+    updated = case.model_copy(
+        update={
+            "handovers": [accepted if item.id == handover_id else item for item in case.handovers],
+            "next_action": case.next_action,
+            "updated_at": accepted_at,
+        }
+    )
+    updated = _append_event(
+        updated,
+        event_type="handover_accepted",
+        detail=(
+            f"Receiver {accepted_by} accepted handover {handover_id}; "
+            "Case investigation remains independent from handover acceptance."
+        ),
+        actor="operator",
+    )
+    return _persist_updated_case(current=case, updated=updated, cases=cases)
+
+
+def request_handover_changes(
+    *,
+    case_id: str,
+    handover_id: str,
+    requested_by: str,
+    reason: str,
+    expected_version: int,
+    cases: CaseRepository,
+) -> InvestigationCase:
+    case = get_case(case_id, cases)
+    if case.version != expected_version:
+        raise CaseConflictError(case_id)
+    handover = next((item for item in case.handovers if item.id == handover_id), None)
+    if handover is None:
+        raise CaseTransitionError("Handover not found")
+    if handover.status is not HandoverStatus.PUBLISHED:
+        raise CaseTransitionError("Only a published handover can receive change requests")
+    changed_at = _now()
+    changed = handover.model_copy(
+        update={
+            "status": HandoverStatus.CHANGES_REQUESTED,
+            "change_request": reason,
+            "change_requested_at": changed_at,
+        }
+    )
+    updated = case.model_copy(
+        update={
+            "handovers": [changed if item.id == handover_id else item for item in case.handovers],
+            "updated_at": changed_at,
+        }
+    )
+    updated = _append_event(
+        updated,
+        event_type="handover_changes_requested",
+        detail=f"{requested_by} requested changes to handover {handover_id}: {reason}",
+        actor="operator",
+    )
+    return _persist_updated_case(current=case, updated=updated, cases=cases)
+
+
+def build_resume(case_id: str, cases: CaseRepository) -> dict[str, object]:
+    case = get_case(case_id, cases)
+    current_run = next(
+        (run for run in case.analysis_runs if run.id == case.current_run_id), None
+    )
+    current_handover = next(
+        (item for item in case.handovers if item.id == case.current_handover_id), None
+    )
+    snapshot = next(
+        (
+            item
+            for item in case.handover_snapshots
+            if current_handover is not None and item.id == current_handover.snapshot_id
+        ),
+        None,
+    )
+    return {
+        "case_id": case.id,
+        "case_version": case.version,
+        "status": case.status.value,
+        "next_action": case.next_action,
+        "current_run": current_run.model_dump(mode="json") if current_run else None,
+        "observations": [
+            {
+                "id": item.id,
+                "text": item.original_text,
+                "author": item.author,
+                "recorded_at": item.recorded_at,
+                "provenance": item.provenance.value,
+            }
+            for item in case.observations
+        ],
+        "open_items": [item.model_dump(mode="json") for item in case.open_items],
+        "hypotheses": [item.model_dump(mode="json") for item in case.hypotheses],
+        "current_handover": current_handover.model_dump(mode="json")
+        if current_handover
+        else None,
+        "current_snapshot": snapshot.model_dump(mode="json") if snapshot else None,
+        "constraints": [case.next_action],
+    }
+
+
 def review_case(
     *,
     case_id: str,
@@ -320,9 +968,18 @@ def review_case(
     """Close only a review-ready case; rejection returns it to evidence collection."""
 
     case = get_case(case_id, cases)
+    if decision.expected_version is not None and decision.expected_version != case.version:
+        raise CaseConflictError(case_id)
     if case.status is not CaseStatus.READY_FOR_REVIEW:
         raise CaseTransitionError(
             "A case can only be reviewed after required evidence is confirmed."
+        )
+    unresolved_items = [
+        item for item in case.open_items if item.status is not OpenItemStatus.RESOLVED
+    ]
+    if unresolved_items:
+        raise CaseTransitionError(
+            "A case cannot close while required Open Items remain unresolved."
         )
     review = StoredCaseReview(
         decision=decision.decision,

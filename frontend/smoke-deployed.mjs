@@ -16,8 +16,8 @@ try {
     waitUntil: "networkidle",
     timeout: 45000,
   });
-  await expect(page).toHaveTitle("Cluephase 클루페이즈 · 제조 이상 조사 워크스페이스");
-  await expect(page.getByRole("link", { name: "Cluephase 클루페이즈 · 조사 홈" })).toBeVisible();
+  await expect(page).toHaveTitle("Continuum 컨티뉴엄 · 제조 이상 조사·교대 연속성 워크스페이스");
+  await expect(page.getByRole("link", { name: "Continuum 컨티뉴엄 · 조사 홈" })).toBeVisible();
   await expect(page.getByLabel("조사 환경 요약")).toBeVisible();
   await expect(page.locator(".workspace-grid")).toHaveCSS("column-gap", "0px");
   await expect(

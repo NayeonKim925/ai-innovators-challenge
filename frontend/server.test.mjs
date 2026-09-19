@@ -255,6 +255,17 @@ test("proxies the case-orchestration API contract", async () => {
               path: "/api/cases/case-1/tasks/task-1/responses",
             },
             { method: "POST", path: "/api/cases/case-1/reviews" },
+            { method: "GET", path: "/api/cases/case-1/resume" },
+            { method: "POST", path: "/api/cases/case-1/observations" },
+            { method: "POST", path: "/api/cases/case-1/analysis-runs" },
+            { method: "POST", path: "/api/cases/case-1/open-items" },
+            { method: "POST", path: "/api/cases/case-1/open-items/item-1/updates" },
+            { method: "POST", path: "/api/cases/case-1/hypotheses/hyp-1/assessments" },
+            { method: "POST", path: "/api/cases/case-1/handover-checks" },
+            { method: "POST", path: "/api/cases/case-1/chat" },
+            { method: "POST", path: "/api/cases/case-1/handovers" },
+            { method: "POST", path: "/api/cases/case-1/handovers/h-1/acceptance" },
+            { method: "POST", path: "/api/cases/case-1/handovers/h-1/change-requests" },
           ];
 
           for (const route of routes) {

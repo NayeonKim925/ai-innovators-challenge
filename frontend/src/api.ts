@@ -74,11 +74,107 @@ export type CaseStatus =
   | "reopened"
   | "abstained"
   | "closed";
+export type OpenItemStatus =
+  | "not_started"
+  | "unavailable"
+  | "not_recorded"
+  | "resolved"
+  | "on_hold";
+export type HandoverStatus =
+  | "draft"
+  | "published"
+  | "changes_requested"
+  | "accepted"
+  | "superseded";
+export interface AnalysisRun {
+  id: string;
+  investigation_id: string;
+  incident_id: string;
+  dataset: string;
+  diagnosis_time: number;
+  algorithm_version: string;
+  created_by: string;
+  created_at: string;
+}
+export interface OperatorObservation {
+  id: string;
+  original_text: string;
+  author: string;
+  observed_at: string | null;
+  recorded_at: string;
+  scope: string;
+  source_location: string;
+  provenance: "actual" | "synthetic_demo" | "simulated";
+  approved: boolean;
+}
+export interface OpenItem {
+  id: string;
+  title: string;
+  status: OpenItemStatus;
+  assignee: string | null;
+  requested_role: "operator" | "process_expert" | "equipment_expert";
+  due_at: string | null;
+  hold_reason: string;
+  evidence_ids: string[];
+  observation_ids: string[];
+  completion_note: string;
+  created_at: string;
+  updated_at: string;
+}
+export interface HypothesisTrack {
+  id: string;
+  run_id: string;
+  candidate_signal: string;
+  evidence_ids: string[];
+  supporting_observation_ids: string[];
+  opposing_evidence_ids: string[];
+  judgment: "unreviewed" | "supported" | "not_supported" | "insufficient";
+  change_reason: string;
+  updated_by: string | null;
+  updated_at: string;
+}
+export interface HandoverFinding {
+  code: string;
+  severity: "blocking" | "warning";
+  message: string;
+  entity_id: string | null;
+}
+export interface HandoverSnapshot {
+  id: string;
+  case_id: string;
+  source_case_version: number;
+  snapshot_hash: string;
+  current_run_id: string | null;
+  hypothesis_ids: string[];
+  evidence_ids: string[];
+  open_item_ids: string[];
+  observation_ids: string[];
+  constraints: string[];
+  payload: Record<string, unknown>;
+  findings: HandoverFinding[];
+  created_at: string;
+}
+export interface Handover {
+  id: string;
+  sender: string;
+  receiver: string;
+  source_case_version: number;
+  snapshot_id: string;
+  status: HandoverStatus;
+  exception_reason: string;
+  change_request: string;
+  created_at: string;
+  published_at: string;
+  accepted_at: string | null;
+  accepted_by: string | null;
+  change_requested_at: string | null;
+}
 export type ExpertResponseOutcome = "confirmed" | "refuted" | "unavailable";
 export interface ExpertTaskResponse {
   outcome: ExpertResponseOutcome;
   comment: string;
   responder: string;
+  expected_version?: number;
 }
 export interface EvidenceTask {
   id: string;
@@ -90,6 +186,7 @@ export interface EvidenceTask {
   candidate_signal: string | null;
   evidence_ids: string[];
   trace_steps: number[];
+  open_item_id: string | null;
   response: ExpertTaskResponse | null;
   created_at: string;
   completed_at: string | null;
@@ -98,7 +195,7 @@ export interface CaseEvent {
   sequence: number;
   event_type: string;
   detail: string;
-  actor: "case_orchestrator" | "expert";
+  actor: "case_orchestrator" | "expert" | "operator" | "analyst" | "system";
   evidence_ids: string[];
   trace_steps: number[];
   created_at: string;
@@ -108,6 +205,7 @@ export interface CaseReview {
   comment: string;
   reviewer: string;
   reviewed_at: string;
+  expected_version?: number;
 }
 export interface InvestigationCase {
   id: string;
@@ -120,6 +218,15 @@ export interface InvestigationCase {
   tasks: EvidenceTask[];
   events: CaseEvent[];
   reviews: CaseReview[];
+  schema_version: number;
+  current_run_id: string | null;
+  analysis_runs: AnalysisRun[];
+  observations: OperatorObservation[];
+  open_items: OpenItem[];
+  hypotheses: HypothesisTrack[];
+  handover_snapshots: HandoverSnapshot[];
+  handovers: Handover[];
+  current_handover_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -162,6 +269,7 @@ export async function api<T>(
       401: "서비스 인증 연결이 필요합니다. 관리자에게 문의해 주세요.",
       403: "이 요청을 처리할 수 없습니다. 페이지를 새로고침해 주세요.",
       404: "요청한 사건 또는 조사 기록을 찾을 수 없습니다.",
+      409: "사건이 다른 작업으로 변경되었습니다. 최신 상태를 다시 확인해 주세요.",
       422: "입력값이 올바르지 않습니다. 진단 시점과 내용을 확인해 주세요.",
       429: "요청이 많습니다. 잠시 후 다시 시도해 주세요.",
       503: "서비스가 준비 중입니다. 잠시 후 다시 시도해 주세요.",

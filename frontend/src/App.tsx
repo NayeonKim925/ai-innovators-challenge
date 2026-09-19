@@ -43,7 +43,7 @@ import type {
   Report,
   Review,
   ExpertResponseOutcome,
-} from "./api";
+  HandoverFinding,
 import {
   displayCaseEventDetail,
   displayCaseEventType,
@@ -219,6 +219,10 @@ export default function App() {
   >([]);
   const [chatInput, setChatInput] = useState("");
   const [chatBusy, setChatBusy] = useState(false);
+  const [caseChat, setCaseChat] = useState<{ question: string; response: ChatResponse }[]>([]);
+  const [caseChatInput, setCaseChatInput] = useState("");
+  const [caseChatBusy, setCaseChatBusy] = useState(false);
+  const [caseChatIncludeAI, setCaseChatIncludeAI] = useState(false);
   const [cases, setCases] = useState<InvestigationCase[]>([]);
   const [activeCase, setActiveCase] = useState<InvestigationCase | null>(null);
   const [casesAvailable, setCasesAvailable] = useState(true);
@@ -228,6 +232,13 @@ export default function App() {
   const [taskComment, setTaskComment] = useState("");
   const [caseReviewer, setCaseReviewer] = useState("");
   const [caseComment, setCaseComment] = useState("");
+  const [observationText, setObservationText] = useState("");
+  const [observationAuthor, setObservationAuthor] = useState("");
+  const [openItemAssignee, setOpenItemAssignee] = useState("");
+  const [handoverSender, setHandoverSender] = useState("");
+  const [handoverReceiver, setHandoverReceiver] = useState("");
+  const [handoverFindings, setHandoverFindings] = useState<HandoverFinding[]>([]);
+  const [handoverBusy, setHandoverBusy] = useState(false);
   const revision = useRef(0);
   useEffect(() => {
     const ctl = new AbortController();
@@ -371,6 +382,7 @@ export default function App() {
         `/investigations/${encodeURIComponent(nextCase.investigation_id)}`,
       );
       setActiveCase(nextCase);
+      setCaseChat([]);
       setRun(investigation);
       setEvidenceId(investigation.evidence[0]?.id || "");
     } catch (e) {
@@ -392,6 +404,7 @@ export default function App() {
         `/investigations/${encodeURIComponent(created.investigation_id)}`,
       );
       replaceCase(created);
+      setCaseChat([]);
       setRun(investigation);
       setEvidenceId(investigation.evidence[0]?.id || "");
       setPage("cases");
@@ -413,6 +426,7 @@ export default function App() {
           outcome: taskOutcome,
           responder: taskResponder.trim(),
           comment: taskComment,
+          expected_version: activeCase.version,
         },
       );
       replaceCase(updated);
@@ -431,7 +445,12 @@ export default function App() {
     try {
       const updated = await post<InvestigationCase>(
         `/cases/${encodeURIComponent(activeCase.id)}/reviews`,
-        { decision, reviewer: caseReviewer.trim(), comment: caseComment },
+        {
+          decision,
+          reviewer: caseReviewer.trim(),
+          comment: caseComment,
+          expected_version: activeCase.version,
+        },
       );
       replaceCase(updated);
       setCaseComment("");
@@ -444,6 +463,146 @@ export default function App() {
       setActionError(message(e));
     } finally {
       setCaseBusy(false);
+    }
+  }
+  async function recordCaseObservation() {
+    if (!activeCase || !observationText.trim() || !observationAuthor.trim() || handoverBusy) return;
+    setHandoverBusy(true);
+    setActionError("");
+    try {
+      const updated = await post<InvestigationCase>(
+        `/cases/${encodeURIComponent(activeCase.id)}/observations`,
+        {
+          expected_version: activeCase.version,
+          original_text: observationText.trim(),
+          author: observationAuthor.trim(),
+          provenance: "synthetic_demo",
+        },
+      );
+      replaceCase(updated);
+      setObservationText("");
+      setNotice("관찰 원문이 기록되었습니다. 센서값과 분리된 교대 기록입니다.");
+    } catch (e) {
+      setActionError(message(e));
+    } finally {
+      setHandoverBusy(false);
+    }
+  }
+  async function assignFirstOpenItem() {
+    if (!activeCase || !openItemAssignee.trim() || handoverBusy) return;
+    const item = activeCase.open_items.find((candidate) => candidate.status !== "resolved");
+    if (!item) return;
+    setHandoverBusy(true);
+    setActionError("");
+    try {
+      const updated = await post<InvestigationCase>(
+        `/cases/${encodeURIComponent(activeCase.id)}/open-items/${encodeURIComponent(item.id)}/updates`,
+        {
+          expected_version: activeCase.version,
+          status: item.status,
+          assignee: openItemAssignee.trim(),
+          hold_reason: item.hold_reason,
+          completion_note: item.completion_note,
+          observation_ids: item.observation_ids,
+        },
+      );
+      replaceCase(updated);
+      setNotice("Open Item 담당자가 지정되었습니다.");
+    } catch (e) {
+      setActionError(message(e));
+    } finally {
+      setHandoverBusy(false);
+    }
+  }
+  async function checkCaseHandover() {
+    if (!activeCase || !handoverSender.trim() || !handoverReceiver.trim() || handoverBusy) return;
+    setHandoverBusy(true);
+    setActionError("");
+    try {
+      const result = await post<{ findings: HandoverFinding[]; blocking: boolean }>(
+        `/cases/${encodeURIComponent(activeCase.id)}/handover-checks`,
+        {
+          expected_version: activeCase.version,
+          sender: handoverSender.trim(),
+          receiver: handoverReceiver.trim(),
+        },
+      );
+      setHandoverFindings(result.findings);
+      setNotice(result.blocking ? "인계 전 보완이 필요합니다." : "인계 점검을 완료했습니다.");
+    } catch (e) {
+      setActionError(message(e));
+    } finally {
+      setHandoverBusy(false);
+    }
+  }
+  async function publishCaseHandover() {
+    if (!activeCase || !handoverSender.trim() || !handoverReceiver.trim() || handoverBusy) return;
+    setHandoverBusy(true);
+    setActionError("");
+    try {
+      const updated = await post<InvestigationCase>(
+        `/cases/${encodeURIComponent(activeCase.id)}/handovers`,
+        {
+          expected_version: activeCase.version,
+          sender: handoverSender.trim(),
+          receiver: handoverReceiver.trim(),
+          exception_reason: "",
+        },
+      );
+      replaceCase(updated);
+      setHandoverFindings(updated.handover_snapshots.at(-1)?.findings || []);
+      setNotice("버전이 고정된 인계 Packet을 발행했습니다.");
+    } catch (e) {
+      setActionError(message(e));
+    } finally {
+      setHandoverBusy(false);
+    }
+  }
+  async function acceptCaseHandover() {
+    if (!activeCase || handoverBusy) return;
+    const handover = activeCase.handovers.at(-1);
+    const snapshot = activeCase.handover_snapshots.find((item) => item.id === handover?.snapshot_id);
+    if (!handover || handover.status !== "published" || !snapshot || !handoverReceiver.trim()) return;
+    setHandoverBusy(true);
+    setActionError("");
+    try {
+      const updated = await post<InvestigationCase>(
+        `/cases/${encodeURIComponent(activeCase.id)}/handovers/${encodeURIComponent(handover.id)}/acceptance`,
+        {
+          expected_version: activeCase.version,
+          snapshot_id: snapshot.id,
+          accepted_by: handoverReceiver.trim(),
+        },
+      );
+      replaceCase(updated);
+      setNotice("인계 상태를 확인하고 수락했습니다. 조사는 계속 진행할 수 있습니다.");
+    } catch (e) {
+      setActionError(message(e));
+    } finally {
+      setHandoverBusy(false);
+    }
+  }
+  async function requestCaseHandoverChanges() {
+    if (!activeCase || handoverBusy) return;
+    const handover = activeCase.handovers.at(-1);
+    if (!handover || handover.status !== "published" || !handoverReceiver.trim()) return;
+    setHandoverBusy(true);
+    setActionError("");
+    try {
+      const updated = await post<InvestigationCase>(
+        `/cases/${encodeURIComponent(activeCase.id)}/handovers/${encodeURIComponent(handover.id)}/change-requests`,
+        {
+          expected_version: activeCase.version,
+          requested_by: handoverReceiver.trim(),
+          reason: caseComment.trim() || "인계 자료의 설명이 더 필요합니다.",
+        },
+      );
+      replaceCase(updated);
+      setNotice("인계 설명 요청을 기록했습니다.");
+    } catch (e) {
+      setActionError(message(e));
+    } finally {
+      setHandoverBusy(false);
     }
   }
   async function openHistory(id: string) {
@@ -526,6 +685,24 @@ export default function App() {
       if (rev === revision.current) setActionError(message(e));
     } finally {
       setChatBusy(false);
+    }
+  }
+  async function askCase() {
+    if (!activeCase || !caseChatInput.trim() || caseChatBusy) return;
+    const q = caseChatInput.trim();
+    setCaseChatBusy(true);
+    setActionError("");
+    try {
+      const response = await post<ChatResponse>(
+        `/cases/${encodeURIComponent(activeCase.id)}/chat`,
+        { question: q, include_llm: caseChatIncludeAI },
+      );
+      setCaseChat((previous) => [...previous, { question: q, response }]);
+      setCaseChatInput("");
+    } catch (e) {
+      setActionError(message(e));
+    } finally {
+      setCaseChatBusy(false);
     }
   }
   const filtered = incidents.filter((x) =>
@@ -1487,6 +1664,180 @@ export default function App() {
                             <p>{displayText(activeCase.next_action)}</p>
                           </div>
                         </div>
+                        <section className="case-handover-panel">
+                          <div className="section-heading">
+                            <div>
+                              <span className="eyebrow">CONTINUUM RESUME</span>
+                              <h3>교대 인수인계 워크스페이스</h3>
+                              <p>
+                                Case {shortId(activeCase.id)} · 버전 {activeCase.version} · 인수와 조사 종료는 별도 상태입니다.
+                              </p>
+                            </div>
+                            <RefreshCw size={21} />
+                          </div>
+                          <div className="resume-grid">
+                            <div>
+                              <strong>현재 상태</strong>
+                              <p>{caseStatusLabel[activeCase.status]} · 최종 원인 미확정</p>
+                            </div>
+                            <div>
+                              <strong>현재 분석 Run</strong>
+                              <p className="mono">{activeCase.current_run_id || "기록 없음"}</p>
+                            </div>
+                            <div>
+                              <strong>이미 기록된 관찰</strong>
+                              <p>{activeCase.observations.length}개 · 원문 보존</p>
+                            </div>
+                            <div>
+                              <strong>남은 Open Item</strong>
+                              <p>{activeCase.open_items.filter((item) => item.status !== "resolved").length}개 · 인계 대상</p>
+                            </div>
+                          </div>
+                          <div className="handover-forms">
+                            <form
+                              className="review-form"
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                void recordCaseObservation();
+                              }}
+                            >
+                              <h4>교대 기록 추가</h4>
+                              <label>
+                                작성자
+                                <input
+                                  value={observationAuthor}
+                                  onChange={(event) => setObservationAuthor(event.target.value)}
+                                  placeholder="Shift A 담당자"
+                                  maxLength={120}
+                                />
+                              </label>
+                              <label>
+                                관찰 원문
+                                <textarea
+                                  value={observationText}
+                                  onChange={(event) => setObservationText(event.target.value)}
+                                  placeholder="완료한 확인, 미실시 점검, 확인하지 못한 이유를 원문으로 남겨 주세요."
+                                  maxLength={4000}
+                                  rows={3}
+                                />
+                              </label>
+                              <button className="button secondary" disabled={!observationText.trim() || !observationAuthor.trim() || handoverBusy}>
+                                {handoverBusy ? <LoaderCircle className="spin" size={15} /> : <ListChecks size={15} />}
+                                관찰 기록
+                              </button>
+                            </form>
+                            <div className="review-form">
+                              <h4>담당자·인계 점검</h4>
+                              <label>
+                                첫 Open Item 담당자
+                                <input
+                                  value={openItemAssignee}
+                                  onChange={(event) => setOpenItemAssignee(event.target.value)}
+                                  placeholder="Shift B 담당자 ID"
+                                  maxLength={120}
+                                />
+                              </label>
+                              <button
+                                className="button secondary"
+                                disabled={!openItemAssignee.trim() || handoverBusy || !activeCase.open_items.some((item) => item.status !== "resolved")}
+                                onClick={() => void assignFirstOpenItem()}
+                              >
+                                담당자 지정
+                              </button>
+                              <div className="form-divider" />
+                              <label>
+                                인계자
+                                <input value={handoverSender} onChange={(event) => setHandoverSender(event.target.value)} placeholder="Shift A" maxLength={120} />
+                              </label>
+                              <label>
+                                인수자
+                                <input value={handoverReceiver} onChange={(event) => setHandoverReceiver(event.target.value)} placeholder="Shift B" maxLength={120} />
+                              </label>
+                              <div className="button-row">
+                                <button className="button secondary" disabled={!handoverSender.trim() || !handoverReceiver.trim() || handoverBusy} onClick={() => void checkCaseHandover()}>
+                                  사전 점검
+                                </button>
+                                <button className="button primary" disabled={!handoverSender.trim() || !handoverReceiver.trim() || handoverBusy} onClick={() => void publishCaseHandover()}>
+                                  Packet 발행
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                          {handoverFindings.length > 0 && (
+                            <div className="disclosure">
+                              <strong>인계 점검 결과</strong>
+                              <ul>
+                                {handoverFindings.map((finding) => (
+                                  <li key={`${finding.code}-${finding.entity_id}`}>
+                                    <span className={`badge ${finding.severity === "blocking" ? "warning" : "neutral"}`}>
+                                      {finding.severity === "blocking" ? "보완 필요" : "전달"}
+                                    </span>{" "}
+                                    {finding.message}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {activeCase.handovers.length > 0 && (() => {
+                            const handover = activeCase.handovers.at(-1)!;
+                            const snapshot = activeCase.handover_snapshots.find((item) => item.id === handover.snapshot_id);
+                            return (
+                              <div className="case-next-action">
+                                <ArrowDownToLine size={19} />
+                                <div>
+                                  <strong>최근 Handover Packet · {handover.status}</strong>
+                                  <p>Snapshot {snapshot?.id || "없음"} · Case 버전 {handover.source_case_version} · {handover.receiver}</p>
+                                </div>
+                                {handover.status === "published" && (
+                                  <div className="button-row">
+                                    <button className="button secondary compact" disabled={handoverBusy} onClick={() => void requestCaseHandoverChanges()}>설명 요청</button>
+                                    <button className="button primary compact" disabled={handoverBusy} onClick={() => void acceptCaseHandover()}><Check size={15} /> 인수 확인</button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </section>
+                        <section className="case-chat-panel">
+                          <div className="section-heading">
+                            <div>
+                              <span className="eyebrow">CASE Q&amp;A</span>
+                              <h3>현재 Case에 질문하기</h3>
+                              <p>현재 상태·Open Item·저장된 관찰과 근거만 사용합니다. 이유가 기록되지 않으면 추정하지 않습니다.</p>
+                            </div>
+                            <MessageSquare size={21} />
+                          </div>
+                          <div className="chat-messages" aria-live="polite">
+                            {!caseChat.length && <p className="muted">예: “지금까지 무엇을 확인했고 무엇이 남았나요?”</p>}
+                            {caseChat.map((turn, index) => (
+                              <div className="chat-turn" key={`${turn.question}-${index}`}>
+                                <p className="chat-question">{turn.question}</p>
+                                <div className="chat-answer">
+                                  <span className="eyebrow">CASE RESUME</span>
+                                  <p>{turn.response.answer}</p>
+                                  <small>{turn.response.llm_status} · 근거 {turn.response.grounded_evidence_ids.join(", ") || "없음"}</small>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <form className="chat-form" onSubmit={(event) => { event.preventDefault(); void askCase(); }}>
+                            <label className="checkbox">
+                              <input type="checkbox" checked={caseChatIncludeAI} onChange={(event) => setCaseChatIncludeAI(event.target.checked)} />
+                              근거 정리 AI 보조 <span>(실패 시 템플릿으로 폴백)</span>
+                            </label>
+                            <label className="sr-only" htmlFor="case-chat-input">Case 질문</label>
+                            <input
+                              id="case-chat-input"
+                              value={caseChatInput}
+                              maxLength={2000}
+                              onChange={(event) => setCaseChatInput(event.target.value)}
+                              placeholder="무엇이 확인됐고 무엇이 남았나요?"
+                            />
+                            <button className="button primary" disabled={!caseChatInput.trim() || caseChatBusy} aria-label="Case 질문 보내기">
+                              {caseChatBusy ? <LoaderCircle className="spin" size={17} /> : <Send size={17} />}
+                            </button>
+                          </form>
+                        </section>
                         <div className="case-content-grid">
                           <section className="human-queue">
                             <div className="section-heading">

@@ -7,10 +7,10 @@
                               근거 조립  ← 워크플로우 상태
                                       │
                                       ▼
-                         Case Orchestrator → 확인 업무 → 사람의 판단 기록
+                         Case Orchestrator → Open Item/관측 → 사람의 판단 기록
                                              │
                                              ▼
-                                  API → 검토 가능한 보고서
+                              Handover Snapshot → Resume/인수 → 조사 재개
 ```
 
 ## 백엔드 경계
@@ -31,10 +31,10 @@
 - `GET /api/incidents`
 - `GET /api/incidents/{incident_id}`
 - `POST /api/incidents/{incident_id}/investigations` — `include_llm_narrative`(기본 `False`)를 요청하면 결정론적 결과 뒤에 `backend/app/llm/explainer.py`의 요약을 덧붙인다. LLM이 실패/미가용이면 `mode`는 `"deterministic"`로 남고 `llm_narrative`는 `None`이다. 응답에는 저장된 조사를 가리키는 `investigation_id`가 포함된다.
-- `POST /api/incidents/{incident_id}/cases` — LLM 없이 결정론적 조사를 저장하고, 근거 확인 업무가 포함된 사건을 연다.
-- `GET /api/cases`, `GET /api/cases/{case_id}` — 사건, 확인 업무, 상태 이벤트, 최종 검토 조회
-- `POST /api/cases/{case_id}/tasks/{task_id}/responses` — 역할별 근거 확인 응답 기록
-- `POST /api/cases/{case_id}/reviews` — `READY_FOR_REVIEW` 사건만 최종 승인·거절 가능. 미완료 증거 업무가 있으면 종료 불가
+- `POST /api/incidents/{incident_id}/cases` — LLM 없이 첫 결정론적 AnalysisRun과 Open Item을 가진 Case를 연다.
+- `POST /api/cases/{case_id}/observations`, `/analysis-runs`, `/open-items`, `/hypotheses/{hypothesis_id}/assessments` — 동일 Case의 사람 관찰·후속 Run·미확인 항목·가설 판단을 version 검사와 함께 기록한다.
+- `POST /api/cases/{case_id}/handover-checks`, `/handovers`, `/handovers/{handover_id}/acceptance`, `/change-requests` — 결정론적 인계 점검, immutable Snapshot 발행, 인수 또는 설명 요청을 수행한다.
+- `GET /api/cases/{case_id}/resume`, `POST /api/cases/{case_id}/chat` — 현재 Case 상태를 템플릿으로 제공하고, 선택적 AI 보조는 근거를 정리할 뿐 상태를 바꾸지 않는다.
 - `GET /api/investigations/{investigation_id}` — 저장된 조사 결과 조회
 - `POST /api/investigations/{investigation_id}/reviews` — 전문가 승인/거절 기록 (approve/reject + comment + reviewer)
 - `GET /api/investigations/{investigation_id}/report` — 조사 결과 + 기록된 모든 검토를 합쳐 반환

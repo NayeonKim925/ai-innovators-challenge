@@ -44,6 +44,40 @@ class EvidenceTaskStatus(str, Enum):
     COMPLETED = "completed"
 
 
+class OpenItemStatus(str, Enum):
+    NOT_STARTED = "not_started"
+    UNAVAILABLE = "unavailable"
+    NOT_RECORDED = "not_recorded"
+    RESOLVED = "resolved"
+    ON_HOLD = "on_hold"
+
+
+class HypothesisJudgment(str, Enum):
+    UNREVIEWED = "unreviewed"
+    SUPPORTED = "supported"
+    NOT_SUPPORTED = "not_supported"
+    INSUFFICIENT = "insufficient"
+
+
+class ObservationProvenance(str, Enum):
+    ACTUAL = "actual"
+    SYNTHETIC_DEMO = "synthetic_demo"
+    SIMULATED = "simulated"
+
+
+class HandoverStatus(str, Enum):
+    DRAFT = "draft"
+    PUBLISHED = "published"
+    CHANGES_REQUESTED = "changes_requested"
+    ACCEPTED = "accepted"
+    SUPERSEDED = "superseded"
+
+
+class HandoverFindingSeverity(str, Enum):
+    BLOCKING = "blocking"
+    WARNING = "warning"
+
+
 class ExpertResponseOutcome(str, Enum):
     """Outcome of an evidence check, never a root-cause confirmation."""
 
@@ -145,6 +179,10 @@ class ChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
 
 
+class CaseChatRequest(ChatRequest):
+    include_llm: bool = False
+
+
 class ChatResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -218,6 +256,94 @@ class CaseCreateRequest(BaseModel):
     question: str = Field(default="", max_length=2000)
 
 
+class ExpectedVersionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=0)
+
+
+class OperatorObservationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=0)
+    original_text: str = Field(min_length=1, max_length=4000)
+    author: str = Field(min_length=1, max_length=120)
+    observed_at: str | None = None
+    scope: str = Field(default="", max_length=500)
+    source_location: str = Field(default="", max_length=500)
+    provenance: ObservationProvenance = ObservationProvenance.SYNTHETIC_DEMO
+
+
+class AnalysisRunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=0)
+    diagnosis_time: float = Field(ge=0)
+    question: str = Field(default="", max_length=2000)
+    created_by: str = Field(min_length=1, max_length=120)
+
+
+class OpenItemRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=0)
+    title: str = Field(min_length=1, max_length=240)
+    requested_role: Literal["operator", "process_expert", "equipment_expert"]
+    assignee: str | None = Field(default=None, max_length=120)
+    due_at: str | None = None
+    evidence_ids: list[str] = Field(default_factory=list)
+
+
+class OpenItemUpdateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=0)
+    status: OpenItemStatus
+    assignee: str | None = Field(default=None, max_length=120)
+    hold_reason: str = Field(default="", max_length=2000)
+    completion_note: str = Field(default="", max_length=2000)
+    observation_ids: list[str] = Field(default_factory=list)
+
+
+class HypothesisAssessmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=0)
+    judgment: HypothesisJudgment
+    updated_by: str = Field(min_length=1, max_length=120)
+    change_reason: str = Field(default="", max_length=2000)
+    supporting_observation_ids: list[str] = Field(default_factory=list)
+    opposing_evidence_ids: list[str] = Field(default_factory=list)
+
+
+class HandoverCheckRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=0)
+    sender: str = Field(min_length=1, max_length=120)
+    receiver: str = Field(min_length=1, max_length=120)
+
+
+class HandoverPublishRequest(HandoverCheckRequest):
+    exception_reason: str = Field(default="", max_length=2000)
+
+
+class HandoverAcceptanceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=0)
+    snapshot_id: str = Field(min_length=1, max_length=80)
+    accepted_by: str = Field(min_length=1, max_length=120)
+
+
+class HandoverChangeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=0)
+    requested_by: str = Field(min_length=1, max_length=120)
+    reason: str = Field(min_length=1, max_length=2000)
+
+
 class ExpertTaskResponse(BaseModel):
     """A bounded expert response to a requested evidence check.
 
@@ -230,6 +356,8 @@ class ExpertTaskResponse(BaseModel):
     outcome: ExpertResponseOutcome
     comment: str = Field(default="", max_length=2000)
     responder: str = Field(min_length=1, max_length=120)
+    # Optional for legacy clients; new Continuum clients send this explicitly.
+    expected_version: int | None = Field(default=None, ge=0)
 
 
 class EvidenceTask(BaseModel):
@@ -246,9 +374,124 @@ class EvidenceTask(BaseModel):
     candidate_signal: str | None = Field(default=None, max_length=120)
     evidence_ids: list[str] = Field(default_factory=list)
     trace_steps: list[int] = Field(default_factory=list)
+    open_item_id: str | None = Field(default=None, max_length=80)
     response: ExpertTaskResponse | None = None
     created_at: str
     completed_at: str | None = None
+
+
+class AnalysisRun(BaseModel):
+    """Immutable link from a Case to one deterministic investigation result."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,80}$")
+    investigation_id: str = Field(min_length=1, max_length=120)
+    incident_id: str = Field(min_length=1, max_length=120)
+    dataset: DatasetName
+    diagnosis_time: float = Field(ge=0)
+    algorithm_version: str = Field(min_length=1, max_length=120)
+    created_by: str = Field(min_length=1, max_length=120)
+    created_at: str
+
+
+class OperatorObservation(BaseModel):
+    """Human-entered context, kept separate from machine sensor observations."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,80}$")
+    original_text: str = Field(min_length=1, max_length=4000)
+    author: str = Field(min_length=1, max_length=120)
+    observed_at: str | None = None
+    recorded_at: str
+    scope: str = Field(default="", max_length=500)
+    source_location: str = Field(default="", max_length=500)
+    provenance: ObservationProvenance
+    approved: bool = False
+
+
+class OpenItem(BaseModel):
+    """A piece of work or context that remains explicitly open until resolved."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,80}$")
+    title: str = Field(min_length=1, max_length=240)
+    status: OpenItemStatus = OpenItemStatus.NOT_STARTED
+    assignee: str | None = Field(default=None, max_length=120)
+    requested_role: Literal["operator", "process_expert", "equipment_expert"]
+    due_at: str | None = None
+    hold_reason: str = Field(default="", max_length=2000)
+    evidence_ids: list[str] = Field(default_factory=list)
+    observation_ids: list[str] = Field(default_factory=list)
+    completion_note: str = Field(default="", max_length=2000)
+    created_at: str
+    updated_at: str
+
+
+class HypothesisTrack(BaseModel):
+    """Human assessment history for a candidate; never a physical-cause claim."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,80}$")
+    run_id: str = Field(min_length=1, max_length=80)
+    candidate_signal: str = Field(min_length=1, max_length=120)
+    evidence_ids: list[str] = Field(default_factory=list)
+    supporting_observation_ids: list[str] = Field(default_factory=list)
+    opposing_evidence_ids: list[str] = Field(default_factory=list)
+    judgment: HypothesisJudgment = HypothesisJudgment.UNREVIEWED
+    change_reason: str = Field(default="", max_length=2000)
+    updated_by: str | None = Field(default=None, max_length=120)
+    updated_at: str
+
+
+class HandoverFinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=1, max_length=80)
+    severity: HandoverFindingSeverity
+    message: str = Field(min_length=1, max_length=500)
+    entity_id: str | None = Field(default=None, max_length=120)
+
+
+class HandoverSnapshot(BaseModel):
+    """Canonical, immutable view of one Case version for handover."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,80}$")
+    case_id: str = Field(min_length=1, max_length=80)
+    source_case_version: int = Field(ge=0)
+    snapshot_hash: str = Field(min_length=1, max_length=128)
+    current_run_id: str | None = None
+    hypothesis_ids: list[str] = Field(default_factory=list)
+    evidence_ids: list[str] = Field(default_factory=list)
+    open_item_ids: list[str] = Field(default_factory=list)
+    observation_ids: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    payload: dict[str, object] = Field(default_factory=dict)
+    findings: list[HandoverFinding] = Field(default_factory=list)
+    created_at: str
+
+
+class Handover(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,80}$")
+    sender: str = Field(min_length=1, max_length=120)
+    receiver: str = Field(min_length=1, max_length=120)
+    source_case_version: int = Field(ge=0)
+    snapshot_id: str = Field(min_length=1, max_length=80)
+    status: HandoverStatus = HandoverStatus.PUBLISHED
+    exception_reason: str = Field(default="", max_length=2000)
+    change_request: str = Field(default="", max_length=2000)
+    created_at: str
+    published_at: str
+    accepted_at: str | None = None
+    accepted_by: str | None = None
+    change_requested_at: str | None = None
 
 
 class CaseEvent(BaseModel):
@@ -265,9 +508,18 @@ class CaseEvent(BaseModel):
         "case_reopened",
         "case_abstained",
         "case_closed",
+        "observation_recorded",
+        "analysis_run_added",
+        "open_item_updated",
+        "hypothesis_assessed",
+        "handover_linted",
+        "handover_published",
+        "handover_accepted",
+        "handover_changes_requested",
+        "handover_superseded",
     ]
     detail: str = Field(min_length=1, max_length=2000)
-    actor: Literal["case_orchestrator", "expert"]
+    actor: Literal["case_orchestrator", "expert", "operator", "analyst", "system"]
     evidence_ids: list[str] = Field(default_factory=list)
     trace_steps: list[int] = Field(default_factory=list)
     created_at: str
@@ -281,6 +533,7 @@ class CaseReviewDecision(BaseModel):
     decision: Literal["approve", "reject"]
     comment: str = Field(default="", max_length=2000)
     reviewer: str = Field(min_length=1, max_length=120)
+    expected_version: int | None = Field(default=None, ge=0)
 
 
 class StoredCaseReview(CaseReviewDecision):
@@ -288,16 +541,26 @@ class StoredCaseReview(CaseReviewDecision):
 
 
 class InvestigationCase(BaseModel):
-    """A case binds an immutable deterministic investigation to human follow-up."""
+    """A case binds immutable deterministic runs to human follow-up."""
 
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,80}$")
     incident_id: str
     dataset: DatasetName
+    # Legacy pointer retained for old clients and old persisted JSON.
     investigation_id: str
     status: CaseStatus
     version: int = Field(default=0, ge=0)
+    schema_version: int = Field(default=2, ge=1)
+    current_run_id: str | None = Field(default=None, max_length=80)
+    analysis_runs: list[AnalysisRun] = Field(default_factory=list)
+    observations: list[OperatorObservation] = Field(default_factory=list)
+    open_items: list[OpenItem] = Field(default_factory=list)
+    hypotheses: list[HypothesisTrack] = Field(default_factory=list)
+    handover_snapshots: list[HandoverSnapshot] = Field(default_factory=list)
+    handovers: list[Handover] = Field(default_factory=list)
+    current_handover_id: str | None = Field(default=None, max_length=80)
     next_action: str = Field(min_length=1, max_length=2000)
     tasks: list[EvidenceTask] = Field(default_factory=list)
     events: list[CaseEvent] = Field(default_factory=list)

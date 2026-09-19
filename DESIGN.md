@@ -9,10 +9,10 @@
 - Branding follow-up: 같은 날 Lazyweb health/search 재조회 성공. Rows·Dovetail·Tango의 브랜딩/워크스페이스 화면 메타데이터 확인. 해당 화면 이미지는 미다운로드·미검토이며 기존 시각 레퍼런스를 유지한다. 브랜드 결정은 `docs/BRAND.md`.
 
 ## Brand
-- Name: **Cluephase / 클루페이즈**. Clue(단서) + Phase(조사 단계·공정). 이름과 메시지의 기준은 `docs/BRAND.md`, 코드 상수는 `frontend/src/brand.ts`.
-- Promise: **신호를 근거로, 근거를 판단으로.** 제조 이상을 근거로 조사하고 전문가의 판단을 기록하는 워크스페이스.
+- Name: **Continuum / 컨티뉴엄**. 다음 교대 담당자가 같은 Case를 매끄럽게 이어 조사하도록 돕는다는 의미다. 이름과 메시지의 기준은 `docs/BRAND.md`, 코드 상수는 `frontend/src/brand.ts`.
+- Promise: **근무는 끝나도, 조사는 끊기면 안 됩니다.** 같은 Case의 근거·미확인 항목·사람의 판단을 다음 담당자에게 이어 주는 워크스페이스.
 - Personality: 정밀함, 침착함, 설명 가능성. 원인을 자동 확정한다는 인상을 주지 않는다.
-- Wordmark: 기존 연결 신호 심볼 + Cluephase 텍스트. 무게와 자간은 아래 Visual language 및 CSS 기준을 따른다. 좁은 화면에서도 이름을 생략하거나 줄바꿈하지 않는다. 색과 로고는 브랜드 위치에서만 사용하고 업무 용어는 그대로 둔다.
+- Wordmark: 기존 연결 신호 심볼 + Continuum 텍스트. 무게와 자간은 아래 Visual language 및 CSS 기준을 따른다. 좁은 화면에서도 이름을 생략하거나 줄바꿈하지 않는다. 색과 로고는 브랜드 위치에서만 사용하고 업무 용어는 그대로 둔다.
 - Trust signals: 원본 사건 ID, 실제 관측 건수, 진단 시점, 근거 출처, 분석 방식, 검토자·시간.
 - Avoid: 가짜 실시간 데이터, 확률처럼 보이는 순위 점수, 공장 실적 KPI, 과장된 AI 문구, 장식용 그래프.
 
@@ -39,7 +39,7 @@
 - Tradeoffs: 기획서의 협업 수정 기능은 API가 지원하는 승인/거절 범위까지만 UI 제공.
 
 ## Visual language
-- 2026-09-17 UI revision: 사용자가 기존 톤은 유지하되 AI 생성형 카드 대시보드 인상을 없애도록 요청. Inspo의 Minimal changelog, Glyphs learn, MotherDuck과 Lazyweb Databricks 실제 화면을 검토했다. 상세 선택·제외 근거는 `.lazyweb/design-improve/cluephase-console-2026-09-17/report.md`. 마케팅 페이지 전체를 복제하지 않고 문서형 위계, 구분선, 기술 메타정보 표현만 차용한다.
+- 2026-09-17 UI revision의 당시 리서치 경로: `.lazyweb/design-improve/cluephase-console-2026-09-17/report.md`. 이 경로는 과거 작업 기록이라 이름을 바꾸지 않는다.
 - Color: canvas #F5F7F8, surface #FFFFFF, sidebar #142D35, ink #18333B, muted #60747C, border #DEE6E9, accent #167D7B, accent-soft #E9F4F1, warning #946019 / #FFF5E3.
 - Typography: 로컬 Pretendard Variable + 시스템 monospace. 굵은 제목의 반복 대신 제목24px/450, 본문400~500, 기술 ID·숫자는 고정폭으로 분리. 설명·표는 11px 이상을 기본으로 한다. 워드마크도 가볍게 조정하며 기존 720 규칙보다 이번 수정 기준이 우선한다.
 - Spacing/layout rhythm: 4px 기반, 주요 간격 8/12/16/24/32; sidebar208px, 목록280px, 본문 fluid.
@@ -84,6 +84,6 @@
 - Verification: typecheck/build, gateway 테스트, 기존 Python 테스트, 실제 runtime 브라우저 E2E, 1440/390px 스크린샷과 visual-verdict.
 
 ## Open questions
-- [ ] 상표·도메인 확인 / 팀 / Cluephase는 제품 작업명으로 적용, 상용 출시 전 별도 검토.
+- [ ] 상표·도메인 확인 / 팀 / Continuum은 제품 작업명으로 적용, 상용 출시 전 별도 검토.
 - [ ] 사용자별 로그인·조직 접근제어 / 후속 서비스 단계 / 공개 운영 전 필요.
 - [ ] 전문가 후보 수정 API / 백엔드 / 현재 승인·거절까지만 제공.

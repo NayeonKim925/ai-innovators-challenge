@@ -12,14 +12,24 @@ from fastapi.responses import JSONResponse
 
 from .data.runtime_repository import JsonRuntimeRepository
 from .domain import (
+    AnalysisRunRequest,
+    CaseChatRequest,
     CaseCreateRequest,
     CaseReviewDecision,
     ChatRequest,
     DatasetName,
     ExpertTaskResponse,
+    HandoverAcceptanceRequest,
+    HandoverChangeRequest,
+    HandoverCheckRequest,
+    HandoverPublishRequest,
+    HypothesisAssessmentRequest,
     InvestigationReport,
     InvestigationRequest,
     LLMStatus,
+    OpenItemRequest,
+    OpenItemUpdateRequest,
+    OperatorObservationRequest,
     ReviewDecision,
     StoredReview,
 )
@@ -35,13 +45,25 @@ from .repositories.investigation_store import (
     build_investigation_repository,
 )
 from .repositories.investigations import InvestigationNotFoundError
+from .services.case_chat import answer_case_question
 from .services.cases import (
     CaseTransitionError,
+    HandoverLintError,
+    accept_handover,
+    add_analysis_run,
+    append_operator_observation,
+    assess_hypothesis,
+    build_resume,
+    check_handover,
+    create_open_item,
     get_case,
     list_cases,
     open_case,
+    publish_handover,
+    request_handover_changes,
     respond_to_task,
     review_case,
+    update_open_item,
 )
 from .services.investigations import answer_question, run_investigation
 from .services.narrative_jobs import (
@@ -235,6 +257,284 @@ def create_app(
             return get_case(case_id, app.state.cases).model_dump(mode="json")
         except CaseNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Case not found") from exc
+
+    @app.post("/api/cases/{case_id}/observations")
+    def record_observation(
+        case_id: str,
+        body: OperatorObservationRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_api_token(authorization)
+        try:
+            case = append_operator_observation(
+                case_id=case_id,
+                original_text=body.original_text,
+                author=body.author,
+                observed_at=body.observed_at,
+                scope=body.scope,
+                source_location=body.source_location,
+                provenance=body.provenance,
+                expected_version=body.expected_version,
+                cases=app.state.cases,
+            )
+        except CaseNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Case not found") from exc
+        except CaseConflictError as exc:
+            raise HTTPException(status_code=409, detail="Case changed. Refresh and retry.") from exc
+        return case.model_dump(mode="json")
+
+    @app.post("/api/cases/{case_id}/analysis-runs")
+    def create_analysis_run(
+        case_id: str,
+        body: AnalysisRunRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_api_token(authorization)
+        current_case = app.state.cases.get(case_id)
+        if current_case is None:
+            raise HTTPException(status_code=404, detail="Case not found")
+        incident = app.state.repository.get_incident(current_case.incident_id)
+        if incident is None:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        try:
+            updated = add_analysis_run(
+                case_id=case_id,
+                incident=incident,
+                diagnosis_time=body.diagnosis_time,
+                question=body.question,
+                created_by=body.created_by,
+                expected_version=body.expected_version,
+                investigations=app.state.investigations,
+                cases=app.state.cases,
+            )
+        except CaseNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Case not found") from exc
+        except CaseConflictError as exc:
+            raise HTTPException(status_code=409, detail="Case changed. Refresh and retry.") from exc
+        except CaseTransitionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return updated.model_dump(mode="json")
+
+    @app.post("/api/cases/{case_id}/open-items")
+    def create_case_open_item(
+        case_id: str,
+        body: OpenItemRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_api_token(authorization)
+        try:
+            case = create_open_item(
+                case_id=case_id,
+                title=body.title,
+                requested_role=body.requested_role,
+                assignee=body.assignee,
+                due_at=body.due_at,
+                evidence_ids=body.evidence_ids,
+                expected_version=body.expected_version,
+                investigations=app.state.investigations,
+                cases=app.state.cases,
+            )
+        except CaseNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Case not found") from exc
+        except CaseConflictError as exc:
+            raise HTTPException(status_code=409, detail="Case changed. Refresh and retry.") from exc
+        except CaseTransitionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return case.model_dump(mode="json")
+
+    @app.post("/api/cases/{case_id}/open-items/{item_id}/updates")
+    def update_case_open_item(
+        case_id: str,
+        item_id: str,
+        body: OpenItemUpdateRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_api_token(authorization)
+        try:
+            case = update_open_item(
+                case_id=case_id,
+                item_id=item_id,
+                status=body.status,
+                assignee=body.assignee,
+                hold_reason=body.hold_reason,
+                completion_note=body.completion_note,
+                observation_ids=body.observation_ids,
+                expected_version=body.expected_version,
+                cases=app.state.cases,
+            )
+        except CaseNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Case not found") from exc
+        except CaseConflictError as exc:
+            raise HTTPException(status_code=409, detail="Case changed. Refresh and retry.") from exc
+        except CaseTransitionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return case.model_dump(mode="json")
+
+    @app.post("/api/cases/{case_id}/hypotheses/{hypothesis_id}/assessments")
+    def assess_case_hypothesis(
+        case_id: str,
+        hypothesis_id: str,
+        body: HypothesisAssessmentRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_api_token(authorization)
+        try:
+            case = assess_hypothesis(
+                case_id=case_id,
+                hypothesis_id=hypothesis_id,
+                judgment=body.judgment,
+                updated_by=body.updated_by,
+                change_reason=body.change_reason,
+                supporting_observation_ids=body.supporting_observation_ids,
+                opposing_evidence_ids=body.opposing_evidence_ids,
+                expected_version=body.expected_version,
+                investigations=app.state.investigations,
+                cases=app.state.cases,
+            )
+        except CaseNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Case not found") from exc
+        except CaseConflictError as exc:
+            raise HTTPException(status_code=409, detail="Case changed. Refresh and retry.") from exc
+        except CaseTransitionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return case.model_dump(mode="json")
+
+    @app.get("/api/cases/{case_id}/resume")
+    def case_resume(
+        case_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_api_token(authorization)
+        try:
+            return build_resume(case_id, app.state.cases)
+        except CaseNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Case not found") from exc
+
+    @app.post("/api/cases/{case_id}/chat")
+    def case_chat(
+        case_id: str,
+        body: CaseChatRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_api_token(authorization)
+        try:
+            case = get_case(case_id, app.state.cases)
+        except CaseNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Case not found") from exc
+        return answer_case_question(
+            case=case,
+            question=body.question,
+            include_llm=body.include_llm,
+            investigations=app.state.investigations,
+        ).model_dump(mode="json")
+
+    @app.post("/api/cases/{case_id}/handover-checks")
+    def run_handover_check(
+        case_id: str,
+        body: HandoverCheckRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_api_token(authorization)
+        try:
+            findings = check_handover(
+                case_id=case_id,
+                expected_version=body.expected_version,
+                investigations=app.state.investigations,
+                cases=app.state.cases,
+            )
+        except CaseNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Case not found") from exc
+        except CaseConflictError as exc:
+            raise HTTPException(status_code=409, detail="Case changed. Refresh and retry.") from exc
+        return {
+            "case_id": case_id,
+            "expected_version": body.expected_version,
+            "findings": [item.model_dump(mode="json") for item in findings],
+            "blocking": any(item.severity.value == "blocking" for item in findings),
+        }
+
+    @app.post("/api/cases/{case_id}/handovers")
+    def publish_case_handover(
+        case_id: str,
+        body: HandoverPublishRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_api_token(authorization)
+        try:
+            case = publish_handover(
+                case_id=case_id,
+                sender=body.sender,
+                receiver=body.receiver,
+                exception_reason=body.exception_reason,
+                expected_version=body.expected_version,
+                investigations=app.state.investigations,
+                cases=app.state.cases,
+            )
+        except CaseNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Case not found") from exc
+        except CaseConflictError as exc:
+            raise HTTPException(status_code=409, detail="Case changed. Refresh and retry.") from exc
+        except HandoverLintError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "Handover has blocking findings",
+                    "findings": [item.model_dump(mode="json") for item in exc.findings],
+                },
+            ) from exc
+        return case.model_dump(mode="json")
+
+    @app.post("/api/cases/{case_id}/handovers/{handover_id}/acceptance")
+    def accept_case_handover(
+        case_id: str,
+        handover_id: str,
+        body: HandoverAcceptanceRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_api_token(authorization)
+        try:
+            case = accept_handover(
+                case_id=case_id,
+                handover_id=handover_id,
+                snapshot_id=body.snapshot_id,
+                accepted_by=body.accepted_by,
+                expected_version=body.expected_version,
+                cases=app.state.cases,
+            )
+        except CaseNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Case not found") from exc
+        except CaseConflictError as exc:
+            raise HTTPException(status_code=409, detail="Case changed. Refresh and retry.") from exc
+        except CaseTransitionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return case.model_dump(mode="json")
+
+    @app.post("/api/cases/{case_id}/handovers/{handover_id}/change-requests")
+    def change_case_handover(
+        case_id: str,
+        handover_id: str,
+        body: HandoverChangeRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_api_token(authorization)
+        try:
+            case = request_handover_changes(
+                case_id=case_id,
+                handover_id=handover_id,
+                requested_by=body.requested_by,
+                reason=body.reason,
+                expected_version=body.expected_version,
+                cases=app.state.cases,
+            )
+        except CaseNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Case not found") from exc
+        except CaseConflictError as exc:
+            raise HTTPException(status_code=409, detail="Case changed. Refresh and retry.") from exc
+        except CaseTransitionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return case.model_dump(mode="json")
 
     @app.post("/api/cases/{case_id}/tasks/{task_id}/responses")
     def record_evidence_response(

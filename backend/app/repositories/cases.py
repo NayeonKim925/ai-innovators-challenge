@@ -12,7 +12,36 @@ from __future__ import annotations
 import os
 from typing import Protocol
 
-from ..domain import InvestigationCase
+from ..domain import AnalysisRun, InvestigationCase
+
+
+def _read_case(payload: object) -> InvestigationCase:
+    """Read v1 Case JSON without rewriting the stored legacy record."""
+
+    case = (
+        InvestigationCase.model_validate_json(payload)
+        if isinstance(payload, str)
+        else InvestigationCase.model_validate(payload)
+    )
+    if case.analysis_runs or not case.investigation_id:
+        return case
+    legacy_run = AnalysisRun(
+        id=f"run_legacy_{case.investigation_id}",
+        investigation_id=case.investigation_id,
+        incident_id=case.incident_id,
+        dataset=case.dataset,
+        diagnosis_time=0,
+        algorithm_version="legacy-unknown",
+        created_by="legacy_reader",
+        created_at=case.created_at,
+    )
+    return case.model_copy(
+        update={
+            "schema_version": max(case.schema_version, 2),
+            "analysis_runs": [legacy_run],
+            "current_run_id": legacy_run.id,
+        }
+    )
 
 
 class CaseNotFoundError(LookupError):
@@ -128,7 +157,7 @@ class DynamoCaseRepository:
         item = response.get("Item")
         if not item:
             return None
-        return InvestigationCase.model_validate_json(item["case_json"])
+        return _read_case(item["case_json"])
 
     def list(self) -> list[InvestigationCase]:
         items: list[dict[str, object]] = []
@@ -142,7 +171,7 @@ class DynamoCaseRepository:
             start_key = response.get("LastEvaluatedKey")
             if not start_key:
                 break
-        cases = [InvestigationCase.model_validate_json(item["case_json"]) for item in items]
+        cases = [_read_case(item["case_json"]) for item in items]
         return sorted(cases, key=lambda item: item.updated_at, reverse=True)
 
 

@@ -223,3 +223,361 @@ def test_case_repository_rejects_stale_transition(tmp_path: Path) -> None:
             stale_reader.model_copy(update={"version": stale_reader.version + 1}),
             expected_version=stale_reader.version,
         )
+
+
+def test_continuum_case_keeps_runs_and_open_items(tmp_path: Path) -> None:
+    client = _client(
+        tmp_path,
+        '[{"time_s":2,"signal":"P101","value":true,"kind":"Alarm"}]',
+    )
+    case = _open_case(client)
+
+    assert case["schema_version"] == 2
+    assert len(case["analysis_runs"]) == 1
+    assert case["current_run_id"] == case["analysis_runs"][0]["id"]
+    assert len(case["open_items"]) == 1
+    assert case["tasks"][0]["open_item_id"] == case["open_items"][0]["id"]
+    assert len(case["hypotheses"]) == 1
+
+    observed = client.post(
+        f"/api/cases/{case['id']}/observations",
+        json={
+            "expected_version": case["version"],
+            "original_text": "알람 이력은 확인했으나 현장 점검은 미실시",
+            "author": "Shift A",
+            "scope": "CNC-07",
+            "provenance": "synthetic_demo",
+        },
+    )
+    assert observed.status_code == 200
+    observed_case = observed.json()
+    assert len(observed_case["observations"]) == 1
+    assert observed_case["events"][-1]["event_type"] == "observation_recorded"
+
+    stale = client.post(
+        f"/api/cases/{case['id']}/observations",
+        json={
+            "expected_version": case["version"],
+            "original_text": "오래된 화면에서 보낸 메모",
+            "author": "Shift A",
+            "provenance": "synthetic_demo",
+        },
+    )
+    assert stale.status_code == 409
+
+    rerun = client.post(
+        f"/api/cases/{case['id']}/analysis-runs",
+        json={
+            "expected_version": observed_case["version"],
+            "diagnosis_time": 4,
+            "question": "새 관측 이후 다시 확인",
+            "created_by": "Shift B",
+        },
+    )
+    assert rerun.status_code == 200
+    rerun_case = rerun.json()
+    assert len(rerun_case["analysis_runs"]) == 2
+    assert rerun_case["analysis_runs"][0]["investigation_id"] == case["investigation_id"]
+    assert rerun_case["current_run_id"] == rerun_case["analysis_runs"][1]["id"]
+    assert rerun_case["version"] == observed_case["version"] + 1
+
+
+def test_unavailable_task_stays_open_as_open_item(tmp_path: Path) -> None:
+    client = _client(
+        tmp_path,
+        '[{"time_s":2,"signal":"P101","value":true,"kind":"Alarm"}]',
+    )
+    case = _open_case(client)
+    task = case["tasks"][0]
+
+    response = client.post(
+        f"/api/cases/{case['id']}/tasks/{task['id']}/responses",
+        json={
+            "expected_version": case["version"],
+            "outcome": "unavailable",
+            "responder": "Shift A",
+            "comment": "현장 접근 불가",
+        },
+    )
+
+    assert response.status_code == 200
+    result = response.json()
+    item = next(item for item in result["open_items"] if item["id"] == task["open_item_id"])
+    assert item["status"] == "unavailable"
+    assert item["completion_note"] == "현장 접근 불가"
+
+
+def test_handover_linter_publishes_snapshot_and_accepts_without_closing_case(
+    tmp_path: Path,
+) -> None:
+    client = _client(
+        tmp_path,
+        '[{"time_s":2,"signal":"P101","value":true,"kind":"Alarm"}]',
+    )
+    case = _open_case(client)
+
+    blocked = client.post(
+        f"/api/cases/{case['id']}/handovers",
+        json={
+            "expected_version": case["version"],
+            "sender": "Shift A",
+            "receiver": "Shift B",
+        },
+    )
+    assert blocked.status_code == 409
+    assert blocked.json()["detail"]["findings"]
+
+    observation = client.post(
+        f"/api/cases/{case['id']}/observations",
+        json={
+            "expected_version": case["version"],
+            "original_text": "알람 이력은 확인했으나 현장 점검은 미실시",
+            "author": "Shift A",
+            "provenance": "synthetic_demo",
+        },
+    ).json()
+    item = observation["open_items"][0]
+    assigned = client.post(
+        f"/api/cases/{case['id']}/open-items/{item['id']}/updates",
+        json={
+            "expected_version": observation["version"],
+            "status": "unavailable",
+            "assignee": "Shift B",
+            "completion_note": "다음 교대에서 확인 필요",
+            "observation_ids": [observation["observations"][0]["id"]],
+        },
+    ).json()
+
+    check = client.post(
+        f"/api/cases/{case['id']}/handover-checks",
+        json={
+            "expected_version": assigned["version"],
+            "sender": "Shift A",
+            "receiver": "Shift B",
+        },
+    )
+    assert check.status_code == 200
+    assert check.json()["blocking"] is False
+    assert any(item["code"] == "unresolved-open-item" for item in check.json()["findings"])
+
+    published_response = client.post(
+        f"/api/cases/{case['id']}/handovers",
+        json={
+            "expected_version": assigned["version"],
+            "sender": "Shift A",
+            "receiver": "Shift B",
+        },
+    )
+    assert published_response.status_code == 200
+    published = published_response.json()
+    handover = published["handovers"][-1]
+    snapshot = published["handover_snapshots"][-1]
+    assert handover["status"] == "published"
+    assert handover["source_case_version"] == assigned["version"]
+    assert snapshot["source_case_version"] == assigned["version"]
+    assert snapshot["open_item_ids"] == [item["id"]]
+
+    accepted_response = client.post(
+        f"/api/cases/{case['id']}/handovers/{handover['id']}/acceptance",
+        json={
+            "expected_version": published["version"],
+            "snapshot_id": snapshot["id"],
+            "accepted_by": "Shift B",
+        },
+    )
+    assert accepted_response.status_code == 200
+    accepted = accepted_response.json()
+    assert accepted["handovers"][-1]["status"] == "accepted"
+    assert accepted["status"] == "awaiting_evidence"
+
+
+def test_stale_handover_snapshot_is_superseded_before_acceptance(tmp_path: Path) -> None:
+    client = _client(
+        tmp_path,
+        '[{"time_s":2,"signal":"P101","value":true,"kind":"Alarm"}]',
+    )
+    case = _open_case(client)
+    observed = client.post(
+        f"/api/cases/{case['id']}/observations",
+        json={
+            "expected_version": case["version"],
+            "original_text": "교대 메모",
+            "author": "Shift A",
+            "provenance": "synthetic_demo",
+        },
+    ).json()
+    item = observed["open_items"][0]
+    assigned = client.post(
+        f"/api/cases/{case['id']}/open-items/{item['id']}/updates",
+        json={
+            "expected_version": observed["version"],
+            "status": "unavailable",
+            "assignee": "Shift B",
+            "observation_ids": [observed["observations"][0]["id"]],
+        },
+    ).json()
+    published = client.post(
+        f"/api/cases/{case['id']}/handovers",
+        json={
+            "expected_version": assigned["version"],
+            "sender": "Shift A",
+            "receiver": "Shift B",
+        },
+    ).json()
+    snapshot = published["handover_snapshots"][-1]
+    changed = client.post(
+        f"/api/cases/{case['id']}/observations",
+        json={
+            "expected_version": published["version"],
+            "original_text": "인계 발행 후 새 관측",
+            "author": "Shift B",
+            "provenance": "synthetic_demo",
+        },
+    ).json()
+
+    stale_accept = client.post(
+        f"/api/cases/{case['id']}/handovers/{published['handovers'][-1]['id']}/acceptance",
+        json={
+            "expected_version": changed["version"],
+            "snapshot_id": snapshot["id"],
+            "accepted_by": "Shift B",
+        },
+    )
+    assert stale_accept.status_code == 409
+    current = client.get(f"/api/cases/{case['id']}").json()
+    assert current["handovers"][-1]["status"] == "superseded"
+
+
+def test_case_resume_and_qna_use_current_case_state_without_llm(tmp_path: Path) -> None:
+    client = _client(
+        tmp_path,
+        '[{"time_s":2,"signal":"P101","value":true,"kind":"Alarm"}]',
+    )
+    case = _open_case(client)
+    observed = client.post(
+        f"/api/cases/{case['id']}/observations",
+        json={
+            "expected_version": case["version"],
+            "original_text": "알람 이력 확인 완료, 현장 점검은 미실시",
+            "author": "Shift A",
+            "provenance": "synthetic_demo",
+        },
+    )
+    assert observed.status_code == 200
+
+    resume = client.get(f"/api/cases/{case['id']}/resume")
+    assert resume.status_code == 200
+    resume_body = resume.json()
+    assert resume_body["case_id"] == case["id"]
+    assert resume_body["observations"][0]["text"].startswith("알람 이력")
+    assert resume_body["open_items"]
+
+    answer = client.post(
+        f"/api/cases/{case['id']}/chat",
+        json={"question": "지금까지 무엇을 확인했고 무엇이 남았나요?"},
+    )
+    assert answer.status_code == 200
+    body = answer.json()
+    assert "알람 이력 확인 완료" in body["answer"]
+    assert "현장 점검" in body["answer"]
+    assert body["llm_status"] == "not_requested"
+    assert body["trace"]["tool"] == "case_resume_template"
+
+
+def test_case_qna_llm_failure_keeps_template_answer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.services.case_chat as chat_module
+    from app.domain import TraceEvent
+
+    monkeypatch.setattr(
+        chat_module,
+        "generate_narrative",
+        lambda _result: (
+            None,
+            TraceEvent(
+                step=5,
+                tool="bedrock_narrative_unverified",
+                detail="forced test fallback",
+            ),
+        ),
+    )
+    client = _client(
+        tmp_path,
+        '[{"time_s":2,"signal":"P101","value":true,"kind":"Alarm"}]',
+    )
+    case = _open_case(client)
+    answer = client.post(
+        f"/api/cases/{case['id']}/chat",
+        json={"question": "왜 이 후보인가요?", "include_llm": True},
+    )
+
+    assert answer.status_code == 200
+    body = answer.json()
+    assert "P101" in body["answer"]
+    assert body["llm_status"] == "unverified"
+    assert body["trace"]["tool"] == "bedrock_narrative_unverified"
+
+
+def test_unresolved_open_item_blocks_case_close(tmp_path: Path) -> None:
+    client = _client(
+        tmp_path,
+        '[{"time_s":2,"signal":"P101","value":true,"kind":"Alarm"}]',
+    )
+    case = _open_case(client)
+    task = case["tasks"][0]
+    ready = client.post(
+        f"/api/cases/{case['id']}/tasks/{task['id']}/responses",
+        json={
+            "outcome": "confirmed",
+            "responder": "Jin",
+            "comment": "근거 확인",
+        },
+    ).json()
+    extra = client.post(
+        f"/api/cases/{case['id']}/open-items",
+        json={
+            "expected_version": ready["version"],
+            "title": "추가 현장 확인",
+            "requested_role": "operator",
+        },
+    ).json()
+
+    blocked = client.post(
+        f"/api/cases/{case['id']}/reviews",
+        json={"decision": "approve", "reviewer": "Jin", "comment": "검토"},
+    )
+    assert blocked.status_code == 409
+    assert "Open Items" in blocked.json()["detail"]
+
+    resolved = client.post(
+        f"/api/cases/{case['id']}/open-items/{extra['open_items'][-1]['id']}/updates",
+        json={
+            "expected_version": extra["version"],
+            "status": "resolved",
+            "completion_note": "현장 확인 기록 첨부",
+        },
+    )
+    assert resolved.status_code == 200
+    closed = client.post(
+        f"/api/cases/{case['id']}/reviews",
+        json={"decision": "approve", "reviewer": "Jin", "comment": "검토"},
+    )
+    assert closed.status_code == 200
+    assert closed.json()["status"] == "closed"
+
+
+def test_case_rejects_unknown_evidence_reference(tmp_path: Path) -> None:
+    client = _client(
+        tmp_path,
+        '[{"time_s":2,"signal":"P101","value":true,"kind":"Alarm"}]',
+    )
+    case = _open_case(client)
+    response = client.post(
+        f"/api/cases/{case['id']}/open-items",
+        json={
+            "expected_version": case["version"],
+            "title": "허위 근거 참조",
+            "requested_role": "operator",
+            "evidence_ids": ["E999"],
+        },
+    )
+    assert response.status_code == 409

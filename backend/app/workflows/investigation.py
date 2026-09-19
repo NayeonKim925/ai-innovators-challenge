@@ -56,7 +56,7 @@ def run_deterministic_analysis(state: InvestigationState) -> dict:
         warnings.extend(tool_warnings)
         if candidates:
             tool = "metal_etch_pca_contribution"
-    if not candidates:
+    if not candidates and incident.source_dataset is not DatasetName.METAL_ETCH:
         candidates, evidence = rank_active_alarms(incident, state["diagnosis_time"])
     if not candidates:
         warnings.append("No active alarm was observed before the cutoff; the workflow abstains from a root-cause ranking.")
