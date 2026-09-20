@@ -107,3 +107,14 @@ Playwright에서 다음 한 경로를 고정한다.
 2. CI에 backend targeted test, runtime 누출 검사, proxy test, TypeScript build, E2E를 순서대로 추가한다.
 3. AWS 실검증 전에는 README·발표 문서에 운영 완료라고 쓰지 않는다.
 4. Time-to-Context, Open Item 누락률, citation/state accuracy를 causRCA Hit@k와 별도 지표로 기록한다.
+
+## 5. 후속 실행 기록 · 2026-09-19
+
+- T0: Python 3.12 전용 `.venv312`에서 backend 의존성과 Metal Etch 선택 의존성을 설치했다. `tsc --noEmit`은 통과했고 Vite `dist/index.html` 및 hashed asset 생성도 확인했다.
+- T1: `test_metal_etch_pca.py` 5개, API 10개, Case 14개, workflow 5개를 Python 3.12 환경에서 통과시켰다.
+- T2: `idempotency_key`, CAS 실패 보상 삭제, Evidence 참조 검증, production trusted actor header 요구를 추가했다.
+- T3: handover lint 실행 Event, Snapshot canonical payload, Resume `handover_delta`를 추가했다.
+- T4: legacy Dynamo JSON projection, stale write 충돌 테스트, idempotency 재시도 테스트를 추가했다.
+- T5: runtime fixture에 의존하지 않는 `frontend/e2e/continuum-smoke.spec.ts`를 추가했다. Playwright 실행은 브라우저 다운로드가 완료되지 않고 시스템 Chrome 실행도 현재 환경에서 `node`/프로세스 문제로 종료되어 통과를 주장하지 않는다.
+
+- T6: `.github/workflows/ci.yml`을 추가해 Python 3.12 backend test·release-path lint와 Node 22 frontend npm ci/build/test를 자동화했다. Playwright는 runtime fixture/browser provisioning이 준비된 release 환경에서 별도 실행한다.

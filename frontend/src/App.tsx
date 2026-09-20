@@ -44,6 +44,7 @@ import type {
   Review,
   ExpertResponseOutcome,
   HandoverFinding,
+} from "./api";
 import {
   displayCaseEventDetail,
   displayCaseEventType,
@@ -519,7 +520,7 @@ export default function App() {
     setHandoverBusy(true);
     setActionError("");
     try {
-      const result = await post<{ findings: HandoverFinding[]; blocking: boolean }>(
+      const result = await post<{ case: InvestigationCase; findings: HandoverFinding[]; blocking: boolean }>(
         `/cases/${encodeURIComponent(activeCase.id)}/handover-checks`,
         {
           expected_version: activeCase.version,
@@ -528,6 +529,7 @@ export default function App() {
         },
       );
       setHandoverFindings(result.findings);
+      replaceCase(result.case);
       setNotice(result.blocking ? "인계 전 보완이 필요합니다." : "인계 점검을 완료했습니다.");
     } catch (e) {
       setActionError(message(e));

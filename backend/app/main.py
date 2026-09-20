@@ -93,8 +93,24 @@ def create_app(
         CORSMiddleware,
         allow_origins=origins,
         allow_methods=["GET", "POST"],
-        allow_headers=["Content-Type", "Authorization"],
+        allow_headers=["Content-Type", "Authorization", "X-Actor-Id", "X-Actor-Role"],
     )
+
+    @app.middleware("http")
+    async def require_actor_context(request, call_next):
+        required = os.getenv("ACTOR_CONTEXT_REQUIRED", "false").lower() == "true"
+        if required and (
+            request.url.path.startswith("/api/cases")
+            or request.url.path.endswith("/cases")
+        ) and request.method == "POST":
+            actor_header = os.getenv("ACTOR_ID_HEADER", "X-Actor-Id")
+            role_header = os.getenv("ACTOR_ROLE_HEADER", "X-Actor-Role")
+            if not request.headers.get(actor_header) or not request.headers.get(role_header):
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "Trusted actor context is required for Case writes"},
+                )
+        return await call_next(request)
 
     def require_api_token(authorization: str | None) -> None:
         """Protect stateful/LLM endpoints when deployed publicly.
@@ -303,6 +319,7 @@ def create_app(
                 diagnosis_time=body.diagnosis_time,
                 question=body.question,
                 created_by=body.created_by,
+                idempotency_key=body.idempotency_key,
                 expected_version=body.expected_version,
                 investigations=app.state.investigations,
                 cases=app.state.cases,
@@ -438,9 +455,11 @@ def create_app(
     ) -> dict[str, object]:
         require_api_token(authorization)
         try:
-            findings = check_handover(
+            findings, linted_case = check_handover(
                 case_id=case_id,
                 expected_version=body.expected_version,
+                sender=body.sender,
+                receiver=body.receiver,
                 investigations=app.state.investigations,
                 cases=app.state.cases,
             )
@@ -449,6 +468,7 @@ def create_app(
         except CaseConflictError as exc:
             raise HTTPException(status_code=409, detail="Case changed. Refresh and retry.") from exc
         return {
+            "case": linted_case.model_dump(mode="json"),
             "case_id": case_id,
             "expected_version": body.expected_version,
             "findings": [item.model_dump(mode="json") for item in findings],

@@ -476,11 +476,19 @@ def add_analysis_run(
     diagnosis_time: float,
     question: str,
     created_by: str,
+    idempotency_key: str | None,
     expected_version: int,
     investigations: InvestigationRepository,
     cases: CaseRepository,
 ) -> InvestigationCase:
     case = get_case(case_id, cases)
+    if idempotency_key:
+        existing = next(
+            (run for run in case.analysis_runs if run.idempotency_key == idempotency_key),
+            None,
+        )
+        if existing is not None:
+            return case
     if case.version != expected_version:
         raise CaseConflictError(case_id)
     if case.status is CaseStatus.CLOSED:
@@ -496,6 +504,7 @@ def add_analysis_run(
         dataset=incident.source_dataset,
         diagnosis_time=diagnosis_time,
         algorithm_version="deterministic-investigation-v1",
+        idempotency_key=idempotency_key,
         created_by=created_by,
         created_at=created_at,
     )
@@ -527,7 +536,12 @@ def add_analysis_run(
         actor="analyst",
         trace_steps=[event.step for event in result.trace],
     )
-    return _persist_updated_case(current=case, updated=updated, cases=cases)
+    try:
+        return _persist_updated_case(current=case, updated=updated, cases=cases)
+    except CaseConflictError:
+        # A failed Case CAS must not leave an unreferenced immutable result.
+        investigations.delete(investigation_id)
+        raise
 
 
 def create_open_item(
@@ -744,13 +758,32 @@ def check_handover(
     *,
     case_id: str,
     expected_version: int,
+    sender: str,
+    receiver: str,
     investigations: InvestigationRepository,
     cases: CaseRepository,
-) -> list[HandoverFinding]:
+) -> tuple[list[HandoverFinding], InvestigationCase]:
     case = get_case(case_id, cases)
     if case.version != expected_version:
         raise CaseConflictError(case_id)
-    return lint_case(case, investigations)
+    findings = lint_case(case, investigations)
+    finding_hash = hashlib.sha256(
+        json.dumps(
+            [item.model_dump(mode="json") for item in findings],
+            ensure_ascii=False,
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
+    updated = _append_event(
+        case,
+        event_type="handover_linted",
+        detail=(
+            f"Checked handover from {sender} to {receiver} for Case version {case.version}; "
+            f"finding_hash={finding_hash}."
+        ),
+        actor="operator",
+    )
+    return findings, _persist_updated_case(current=case, updated=updated, cases=cases)
 
 
 def publish_handover(
@@ -917,6 +950,45 @@ def request_handover_changes(
     return _persist_updated_case(current=case, updated=updated, cases=cases)
 
 
+def _handover_delta(
+    case: InvestigationCase, snapshot: HandoverSnapshot | None
+) -> list[dict[str, object]]:
+    if snapshot is None:
+        return []
+    payload = snapshot.payload
+    changes: list[dict[str, object]] = []
+    if case.version != snapshot.source_case_version + 1:
+        changes.append(
+            {
+                "kind": "case-version-changed",
+                "from_version": snapshot.source_case_version,
+                "to_version": case.version,
+            }
+        )
+    for field, current_items in (
+        ("observations", case.observations),
+        ("open_items", case.open_items),
+        ("hypotheses", case.hypotheses),
+    ):
+        previous_by_id = {
+            str(item.get("id")): item
+            for item in payload.get(field, [])
+            if isinstance(item, dict) and item.get("id") is not None
+        }
+        current_by_id = {
+            item.id: item.model_dump(mode="json") for item in current_items
+        }
+        for item_id, item in current_by_id.items():
+            if item_id not in previous_by_id:
+                changes.append({"kind": "added", "entity": field, "id": item_id})
+            elif item != previous_by_id[item_id]:
+                changes.append({"kind": "updated", "entity": field, "id": item_id})
+        for item_id in previous_by_id:
+            if item_id not in current_by_id:
+                changes.append({"kind": "removed", "entity": field, "id": item_id})
+    return changes
+
+
 def build_resume(case_id: str, cases: CaseRepository) -> dict[str, object]:
     case = get_case(case_id, cases)
     current_run = next(
@@ -955,6 +1027,7 @@ def build_resume(case_id: str, cases: CaseRepository) -> dict[str, object]:
         if current_handover
         else None,
         "current_snapshot": snapshot.model_dump(mode="json") if snapshot else None,
+        "handover_delta": _handover_delta(case, snapshot),
         "constraints": [case.next_action],
     }
 

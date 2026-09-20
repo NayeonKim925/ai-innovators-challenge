@@ -23,6 +23,8 @@ class InvestigationRepository(Protocol):
 
     def get(self, investigation_id: str) -> InvestigationResult | None: ...
 
+    def delete(self, investigation_id: str) -> None: ...
+
     def add_review(self, investigation_id: str, review: StoredReview) -> StoredReview: ...
 
     def list_reviews(self, investigation_id: str) -> list[StoredReview]: ...
@@ -61,6 +63,9 @@ class DynamoInvestigationRepository:
         if not item:
             return None
         return InvestigationResult.model_validate_json(item["result_json"])
+
+    def delete(self, investigation_id: str) -> None:
+        self._table.delete_item(Key={"investigation_id": investigation_id})
 
     def replace(self, investigation_id: str, result: InvestigationResult) -> None:
         try:

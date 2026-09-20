@@ -93,6 +93,7 @@ export interface AnalysisRun {
   dataset: string;
   diagnosis_time: number;
   algorithm_version: string;
+  idempotency_key: string | null;
   created_by: string;
   created_at: string;
 }

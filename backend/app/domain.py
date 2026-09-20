@@ -281,6 +281,7 @@ class AnalysisRunRequest(BaseModel):
     diagnosis_time: float = Field(ge=0)
     question: str = Field(default="", max_length=2000)
     created_by: str = Field(min_length=1, max_length=120)
+    idempotency_key: str | None = Field(default=None, max_length=160)
 
 
 class OpenItemRequest(BaseModel):
@@ -391,6 +392,7 @@ class AnalysisRun(BaseModel):
     dataset: DatasetName
     diagnosis_time: float = Field(ge=0)
     algorithm_version: str = Field(min_length=1, max_length=120)
+    idempotency_key: str | None = Field(default=None, max_length=160)
     created_by: str = Field(min_length=1, max_length=120)
     created_at: str
 

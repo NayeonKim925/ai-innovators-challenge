@@ -4,6 +4,7 @@ These tests intentionally use only local runtime observations. They do not
 load causRCA evaluation labels and do not call a real LLM provider.
 """
 
+import json
 from pathlib import Path
 
 import pytest
@@ -359,11 +360,13 @@ def test_handover_linter_publishes_snapshot_and_accepts_without_closing_case(
     assert check.status_code == 200
     assert check.json()["blocking"] is False
     assert any(item["code"] == "unresolved-open-item" for item in check.json()["findings"])
+    assert check.json()["case"]["events"][-1]["event_type"] == "handover_linted"
 
+    checked = check.json()["case"]
     published_response = client.post(
         f"/api/cases/{case['id']}/handovers",
         json={
-            "expected_version": assigned["version"],
+            "expected_version": checked["version"],
             "sender": "Shift A",
             "receiver": "Shift B",
         },
@@ -373,9 +376,10 @@ def test_handover_linter_publishes_snapshot_and_accepts_without_closing_case(
     handover = published["handovers"][-1]
     snapshot = published["handover_snapshots"][-1]
     assert handover["status"] == "published"
-    assert handover["source_case_version"] == assigned["version"]
-    assert snapshot["source_case_version"] == assigned["version"]
+    assert handover["source_case_version"] == checked["version"]
+    assert snapshot["source_case_version"] == checked["version"]
     assert snapshot["open_item_ids"] == [item["id"]]
+    assert snapshot["payload"]["case_id"] == case["id"]
 
     accepted_response = client.post(
         f"/api/cases/{case['id']}/handovers/{handover['id']}/acceptance",
@@ -434,6 +438,8 @@ def test_stale_handover_snapshot_is_superseded_before_acceptance(tmp_path: Path)
             "provenance": "synthetic_demo",
         },
     ).json()
+    resume = client.get(f"/api/cases/{case['id']}/resume").json()
+    assert any(item["kind"] == "case-version-changed" for item in resume["handover_delta"])
 
     stale_accept = client.post(
         f"/api/cases/{case['id']}/handovers/{published['handovers'][-1]['id']}/acceptance",
@@ -581,3 +587,85 @@ def test_case_rejects_unknown_evidence_reference(tmp_path: Path) -> None:
         },
     )
     assert response.status_code == 409
+
+
+def test_analysis_run_idempotency_returns_existing_case_without_duplicate_run(tmp_path: Path) -> None:
+    client = _client(
+        tmp_path,
+        '[{"time_s":2,"signal":"P101","value":true,"kind":"Alarm"}]',
+    )
+    case = _open_case(client)
+    request = {
+        "expected_version": case["version"],
+        "diagnosis_time": 4,
+        "question": "재현 가능한 후속 분석",
+        "created_by": "Shift B",
+        "idempotency_key": "resume-case-1",
+    }
+    first = client.post(f"/api/cases/{case['id']}/analysis-runs", json=request)
+    assert first.status_code == 200
+    second = client.post(f"/api/cases/{case['id']}/analysis-runs", json=request)
+    assert second.status_code == 200
+    assert second.json()["version"] == first.json()["version"]
+    assert len(second.json()["analysis_runs"]) == len(first.json()["analysis_runs"]) == 2
+
+
+def test_dynamo_case_repository_projects_legacy_json_to_first_analysis_run(
+    tmp_path: Path,
+) -> None:
+    client = _client(
+        tmp_path,
+        '[{"time_s":2,"signal":"P101","value":true,"kind":"Alarm"}]',
+    )
+    current = _open_case(client)
+    legacy_payload = json.loads(json.dumps(current))
+    for field in (
+        "schema_version",
+        "current_run_id",
+        "analysis_runs",
+        "observations",
+        "open_items",
+        "hypotheses",
+        "handover_snapshots",
+        "handovers",
+        "current_handover_id",
+    ):
+        legacy_payload.pop(field, None)
+    for task in legacy_payload["tasks"]:
+        task.pop("open_item_id", None)
+
+    repository = object.__new__(DynamoCaseRepository)
+    repository._table = _FakeCaseTable()
+    repository._client_error = RuntimeError
+    repository._table.items[current["id"]] = {
+        "case_id": current["id"],
+        "case_json": json.dumps(legacy_payload),
+        "updated_at": current["updated_at"],
+        "version": current["version"],
+    }
+
+    loaded = repository.get(current["id"])
+    assert loaded is not None
+    assert loaded.schema_version == 2
+    assert len(loaded.analysis_runs) == 1
+    assert loaded.analysis_runs[0].investigation_id == current["investigation_id"]
+    assert loaded.current_run_id == loaded.analysis_runs[0].id
+    assert loaded.investigation_id == current["investigation_id"]
+
+
+def test_case_observation_rejects_second_write_from_same_stale_version(tmp_path: Path) -> None:
+    client = _client(
+        tmp_path,
+        '[{"time_s":2,"signal":"P101","value":true,"kind":"Alarm"}]',
+    )
+    case = _open_case(client)
+    body = {
+        "expected_version": case["version"],
+        "original_text": "첫 번째 교대 관찰",
+        "author": "Shift A",
+        "provenance": "synthetic_demo",
+    }
+    first = client.post(f"/api/cases/{case['id']}/observations", json=body)
+    second = client.post(f"/api/cases/{case['id']}/observations", json=body)
+    assert first.status_code == 200
+    assert second.status_code == 409

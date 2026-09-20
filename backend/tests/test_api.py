@@ -208,3 +208,30 @@ def test_api_async_narrative_fails_closed_without_queue(tmp_path: Path, monkeypa
 
     assert response.status_code == 503
     assert response.json()["detail"]["investigation_id"]
+
+
+def test_production_case_writes_require_trusted_actor_context(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setenv("DEPLOYMENT_ENV", "production")
+    monkeypatch.setenv("API_AUTH_TOKEN", "test-token")
+    monkeypatch.setenv("ACTOR_CONTEXT_REQUIRED", "true")
+    client = _client_with_prepared_incident(tmp_path)
+
+    denied = client.post(
+        "/api/incidents/case_1/cases",
+        headers={"Authorization": "Bearer test-token"},
+        json={"diagnosis_time": 3, "question": ""},
+    )
+    allowed = client.post(
+        "/api/incidents/case_1/cases",
+        headers={
+            "Authorization": "Bearer test-token",
+            "X-Actor-Id": "shift-a",
+            "X-Actor-Role": "operator",
+        },
+        json={"diagnosis_time": 3, "question": ""},
+    )
+
+    assert denied.status_code == 401
+    assert allowed.status_code == 200
