@@ -117,4 +117,4 @@ Playwright에서 다음 한 경로를 고정한다.
 - T4: legacy Dynamo JSON projection, stale write 충돌 테스트, idempotency 재시도 테스트를 추가했다.
 - T5: runtime fixture에 의존하지 않는 `frontend/e2e/continuum-smoke.spec.ts`를 추가했다. Playwright 실행은 브라우저 다운로드가 완료되지 않고 시스템 Chrome 실행도 현재 환경에서 `node`/프로세스 문제로 종료되어 통과를 주장하지 않는다.
 
-- T6: `.github/workflows/ci.yml`을 추가해 Python 3.12 backend test·release-path lint와 Node 22 frontend npm ci/build/test를 자동화했다. Playwright는 runtime fixture/browser provisioning이 준비된 release 환경에서 별도 실행한다.
+- T6: release-path CI 구성을 준비했지만, 현재 GitHub OAuth 토큰에 `workflow` scope가 없어 `.github/workflows/ci.yml` 업로드가 거부됐다. CI workflow는 로컬 커밋에서 제외했으며, `workflow` 권한이 있는 인증으로 별도 업로드해야 한다.
