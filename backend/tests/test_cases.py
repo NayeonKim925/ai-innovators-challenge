@@ -233,11 +233,13 @@ def test_continuum_case_keeps_runs_and_open_items(tmp_path: Path) -> None:
     )
     case = _open_case(client)
 
-    assert case["schema_version"] == 2
+    assert case["schema_version"] == 3
     assert len(case["analysis_runs"]) == 1
     assert case["current_run_id"] == case["analysis_runs"][0]["id"]
+    assert case["tasks"][0]["run_id"] == case["analysis_runs"][0]["id"]
     assert len(case["open_items"]) == 1
     assert case["tasks"][0]["open_item_id"] == case["open_items"][0]["id"]
+    assert case["open_items"][0]["run_id"] == case["analysis_runs"][0]["id"]
     assert len(case["hypotheses"]) == 1
 
     observed = client.post(
@@ -280,7 +282,88 @@ def test_continuum_case_keeps_runs_and_open_items(tmp_path: Path) -> None:
     assert len(rerun_case["analysis_runs"]) == 2
     assert rerun_case["analysis_runs"][0]["investigation_id"] == case["investigation_id"]
     assert rerun_case["current_run_id"] == rerun_case["analysis_runs"][1]["id"]
+    assert rerun_case["tasks"][0]["run_id"] == rerun_case["analysis_runs"][0]["id"]
+    assert rerun_case["tasks"][1]["run_id"] == rerun_case["analysis_runs"][1]["id"]
+    assert rerun_case["open_items"][0]["run_id"] == rerun_case["analysis_runs"][0]["id"]
+    assert rerun_case["open_items"][1]["run_id"] == rerun_case["analysis_runs"][1]["id"]
     assert rerun_case["version"] == observed_case["version"] + 1
+
+
+def test_reused_evidence_id_stays_scoped_to_its_analysis_run(tmp_path: Path) -> None:
+    client = _client(
+        tmp_path,
+        "["
+        '{"time_s":2,"signal":"F_Filter_Ok","value":true,"kind":"Alarm"},'
+        '{"time_s":4,"signal":"LP_Pump_Ok","value":true,"kind":"Alarm"}'
+        "]",
+    )
+    first_case = _open_case(client)
+    first_run = first_case["analysis_runs"][0]
+
+    rerun_response = client.post(
+        f"/api/cases/{first_case['id']}/analysis-runs",
+        json={
+            "expected_version": first_case["version"],
+            "diagnosis_time": 5,
+            "question": "Include the later alarm",
+            "created_by": "Shift B",
+        },
+    )
+    assert rerun_response.status_code == 200
+    rerun_case = rerun_response.json()
+    second_run = rerun_case["analysis_runs"][1]
+
+    first_result = client.get(
+        f"/api/investigations/{first_run['investigation_id']}"
+    ).json()
+    second_result = client.get(
+        f"/api/investigations/{second_run['investigation_id']}"
+    ).json()
+    assert first_result["evidence"][0]["id"] == "E1"
+    assert second_result["evidence"][0]["id"] == "E1"
+    assert "F_Filter_Ok" in first_result["evidence"][0]["title"]
+    assert "LP_Pump_Ok" in second_result["evidence"][0]["title"]
+
+    assert rerun_case["tasks"][0]["evidence_ids"] == ["E1"]
+    assert rerun_case["tasks"][0]["run_id"] == first_run["id"]
+    assert rerun_case["tasks"][1]["evidence_ids"] == ["E1"]
+    assert rerun_case["tasks"][1]["run_id"] == second_run["id"]
+    assert rerun_case["open_items"][0]["run_id"] == first_run["id"]
+    assert rerun_case["open_items"][1]["run_id"] == second_run["id"]
+    assert {item["run_id"] for item in rerun_case["hypotheses"]} == {
+        first_run["id"],
+        second_run["id"],
+    }
+
+    # E2 exists in R2, but must not be accepted as an R1 reference.
+    invalid_r1_open_item = client.post(
+        f"/api/cases/{first_case['id']}/open-items",
+        json={
+            "expected_version": rerun_case["version"],
+            "title": "Wrong run reference",
+            "requested_role": "operator",
+            "run_id": first_run["id"],
+            "evidence_ids": ["E2"],
+        },
+    )
+    assert invalid_r1_open_item.status_code == 409
+
+    first_hypothesis = next(
+        item for item in rerun_case["hypotheses"] if item["run_id"] == first_run["id"]
+    )
+    invalid_r1_assessment = client.post(
+        f"/api/cases/{first_case['id']}/hypotheses/{first_hypothesis['id']}/assessments",
+        json={
+            "expected_version": rerun_case["version"],
+            "judgment": "not_supported",
+            "updated_by": "Shift B",
+            "opposing_evidence_ids": ["E2"],
+        },
+    )
+    assert invalid_r1_assessment.status_code == 409
+
+    resume = client.get(f"/api/cases/{first_case['id']}/resume").json()
+    assert resume["current_run"]["id"] == second_run["id"]
 
 
 def test_unavailable_task_stays_open_as_open_item(tmp_path: Path) -> None:
@@ -733,6 +816,7 @@ def test_dynamo_case_repository_projects_legacy_json_to_first_analysis_run(
         legacy_payload.pop(field, None)
     for task in legacy_payload["tasks"]:
         task.pop("open_item_id", None)
+        task.pop("run_id", None)
 
     repository = object.__new__(DynamoCaseRepository)
     repository._table = _FakeCaseTable()
@@ -746,11 +830,59 @@ def test_dynamo_case_repository_projects_legacy_json_to_first_analysis_run(
 
     loaded = repository.get(current["id"])
     assert loaded is not None
-    assert loaded.schema_version == 2
+    assert loaded.schema_version == 3
     assert len(loaded.analysis_runs) == 1
     assert loaded.analysis_runs[0].investigation_id == current["investigation_id"]
     assert loaded.current_run_id == loaded.analysis_runs[0].id
+    assert loaded.tasks[0].run_id == loaded.analysis_runs[0].id
     assert loaded.investigation_id == current["investigation_id"]
+
+
+def test_repository_backfills_run_scope_for_existing_multi_run_case(tmp_path: Path) -> None:
+    client = _client(
+        tmp_path,
+        "["
+        '{"time_s":2,"signal":"F_Filter_Ok","value":true,"kind":"Alarm"},'
+        '{"time_s":4,"signal":"LP_Pump_Ok","value":true,"kind":"Alarm"}'
+        "]",
+    )
+    first = _open_case(client)
+    current = client.post(
+        f"/api/cases/{first['id']}/analysis-runs",
+        json={
+            "expected_version": first["version"],
+            "diagnosis_time": 5,
+            "created_by": "Shift B",
+        },
+    ).json()
+    existing_payload = json.loads(json.dumps(current))
+    existing_payload["schema_version"] = 2
+    for task in existing_payload["tasks"]:
+        task.pop("run_id", None)
+    for item in existing_payload["open_items"]:
+        item.pop("run_id", None)
+
+    repository = object.__new__(DynamoCaseRepository)
+    repository._table = _FakeCaseTable()
+    repository._client_error = RuntimeError
+    repository._table.items[current["id"]] = {
+        "case_id": current["id"],
+        "case_json": json.dumps(existing_payload),
+        "updated_at": current["updated_at"],
+        "version": current["version"],
+    }
+
+    loaded = repository.get(current["id"])
+    assert loaded is not None
+    assert loaded.schema_version == 3
+    assert [task.run_id for task in loaded.tasks] == [
+        loaded.analysis_runs[0].id,
+        loaded.analysis_runs[1].id,
+    ]
+    assert [item.run_id for item in loaded.open_items] == [
+        loaded.analysis_runs[0].id,
+        loaded.analysis_runs[1].id,
+    ]
 
 
 def test_case_observation_rejects_second_write_from_same_stale_version(tmp_path: Path) -> None:

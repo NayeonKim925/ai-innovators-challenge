@@ -117,6 +117,7 @@ export interface OpenItem {
   requested_role: "operator" | "process_expert" | "equipment_expert";
   due_at: string | null;
   hold_reason: string;
+  run_id: string | null;
   evidence_ids: string[];
   observation_ids: string[];
   completion_note: string;
@@ -173,32 +174,37 @@ export interface Handover {
   accepted_by: string | null;
   change_requested_at: string | null;
 }
-export interface ResumeDelta {
-  kind: string;
-  entity?: string;
-  id?: string;
-  from_version?: number;
-  to_version?: number;
+export interface ResumeObservation {
+  id: string;
+  text: string;
+  author: string;
+  recorded_at: string;
+  provenance: "actual" | "synthetic_demo" | "simulated";
+  is_current_state: boolean;
 }
+export type HandoverDelta =
+  | {
+      kind: "case-version-changed";
+      from_version: number;
+      to_version: number;
+    }
+  | {
+      kind: "added" | "updated" | "removed";
+      entity: "observations" | "open_items" | "hypotheses";
+      id: string;
+    };
 export interface CaseResume {
   case_id: string;
   case_version: number;
   status: CaseStatus;
   next_action: string;
   current_run: AnalysisRun | null;
-  observations: Array<{
-    id: string;
-    text: string;
-    author: string;
-    recorded_at: string;
-    provenance: string;
-    is_current_state: boolean;
-  }>;
+  observations: ResumeObservation[];
   open_items: OpenItem[];
   hypotheses: HypothesisTrack[];
   current_handover: Handover | null;
   current_snapshot: HandoverSnapshot | null;
-  handover_delta: ResumeDelta[];
+  handover_delta: HandoverDelta[];
   constraints: string[];
 }
 export type ExpertResponseOutcome = "confirmed" | "refuted" | "unavailable";
@@ -216,6 +222,7 @@ export interface EvidenceTask {
   title: string;
   instructions: string;
   candidate_signal: string | null;
+  run_id: string | null;
   evidence_ids: string[];
   trace_steps: number[];
   open_item_id: string | null;

@@ -50,7 +50,7 @@ function makeCase(status: string, version: number, taskStatus: string) {
     investigation_id: "inv_1",
     status,
     version,
-    schema_version: 2,
+    schema_version: 3,
     current_run_id: "run_1",
     analysis_runs: [
       {
@@ -75,6 +75,7 @@ function makeCase(status: string, version: number, taskStatus: string) {
         requested_role: "process_expert",
         due_at: null,
         hold_reason: "",
+        run_id: "run_1",
         evidence_ids: ["E1"],
         observation_ids: [],
         completion_note: taskStatus === "completed" ? "Checked" : "",
@@ -109,6 +110,7 @@ function makeCase(status: string, version: number, taskStatus: string) {
         title: "P101 근거를 확인해 주세요",
         instructions: "근거가 관측 가능한지 확인하세요.",
         candidate_signal: "P101",
+        run_id: "run_1",
         evidence_ids: ["E1"],
         trace_steps: [2, 3],
         open_item_id: "item_1",
@@ -130,6 +132,8 @@ function makeCase(status: string, version: number, taskStatus: string) {
 
 test("Continuum keeps the handover investigation flow usable without runtime fixtures", async ({ page }) => {
   let currentCase = makeCase("awaiting_evidence", 0, "pending");
+  let resumeRequests = 0;
+  let currentRunRequests = 0;
   await page.route("**/api/health", (route) =>
     route.fulfill({ json: { status: "ok", llm_provider: "not_configured" } }),
   );
@@ -155,6 +159,63 @@ test("Continuum keeps the handover investigation flow usable without runtime fix
   await page.route("**/api/investigations/inv_1", (route) =>
     route.fulfill({ json: investigation }),
   );
+  await page.route("**/api/investigations/inv_2", (route) => {
+    currentRunRequests += 1;
+    return route.fulfill({
+      json: {
+        ...investigation,
+        investigation_id: "inv_2",
+        diagnosis_time: 7,
+      },
+    });
+  });
+  await page.route("**/api/cases/case_1/resume", (route) => {
+    resumeRequests += 1;
+    return route.fulfill({
+      json: {
+        case_id: "case_1",
+        case_version: currentCase.version + 3,
+        status: currentCase.status,
+        next_action: currentCase.next_action,
+        current_run: {
+          ...currentCase.analysis_runs[0],
+          id: "run_2",
+          investigation_id: "inv_2",
+          diagnosis_time: 7,
+        },
+        observations: [
+          { id: "obs_1", text: "인계 당시 관찰", author: "Shift A", recorded_at: "2026-01-01T00:00:00Z", provenance: "synthetic_demo" },
+          { id: "obs_2", text: "인계 이후 관찰", author: "Shift B", recorded_at: "2026-01-01T01:00:00Z", provenance: "synthetic_demo" },
+        ],
+        open_items: [{ ...currentCase.open_items[0], status: "resolved" }],
+        hypotheses: [{ ...currentCase.hypotheses[0], judgment: "not_supported" }],
+        current_handover: {
+          id: "handover_1", sender: "Shift A", receiver: "Shift B", source_case_version: 0,
+          snapshot_id: "snapshot_1", status: "accepted", exception_reason: "", change_request: "",
+          created_at: "2026-01-01T00:00:00Z", published_at: "2026-01-01T00:00:00Z",
+          accepted_at: "2026-01-01T00:30:00Z", accepted_by: "Shift B", change_requested_at: null,
+        },
+        current_snapshot: {
+          id: "snapshot_1", case_id: "case_1", source_case_version: 0, snapshot_hash: "hash",
+          current_run_id: "run_1", hypothesis_ids: ["hyp_1"], evidence_ids: ["E1"],
+          open_item_ids: ["item_1"], observation_ids: ["obs_1"], constraints: [], findings: [],
+          created_at: "2026-01-01T00:00:00Z",
+          payload: {
+            observations: [{ id: "obs_1", original_text: "인계 당시 관찰" }],
+            open_items: [currentCase.open_items[0]],
+            hypotheses: [currentCase.hypotheses[0]],
+          },
+        },
+        handover_delta: [
+          { kind: "case-version-changed", from_version: 0, to_version: currentCase.version + 3 },
+          { kind: "added", entity: "observations", id: "obs_2" },
+          { kind: "updated", entity: "open_items", id: "item_1" },
+          { kind: "updated", entity: "hypotheses", id: "hyp_1" },
+        ],
+        constraints: [currentCase.next_action],
+      },
+    });
+  });
   await page.route("**/api/cases/case_1/tasks/task_1/responses", (route) => {
     currentCase = makeCase("ready_for_review", 1, "completed");
     return route.fulfill({ json: currentCase });
@@ -163,24 +224,6 @@ test("Continuum keeps the handover investigation flow usable without runtime fix
     currentCase = makeCase("closed", 2, "completed");
     return route.fulfill({ json: currentCase });
   });
-  await page.route("**/api/cases/case_1/resume", (route) =>
-    route.fulfill({
-      json: {
-        case_id: currentCase.id,
-        case_version: currentCase.version,
-        status: currentCase.status,
-        next_action: currentCase.next_action,
-        current_run: currentCase.analysis_runs[0],
-        observations: [],
-        open_items: currentCase.open_items,
-        hypotheses: currentCase.hypotheses,
-        current_handover: null,
-        current_snapshot: null,
-        handover_delta: [],
-        constraints: [currentCase.next_action],
-      },
-    }),
-  );
 
   await page.goto("/");
   await expect(page).toHaveTitle("Continuum 컨티뉴엄 · 제조 이상 조사·교대 연속성 워크스페이스");
@@ -189,38 +232,48 @@ test("Continuum keeps the handover investigation flow usable without runtime fix
   await expect(page.locator(".candidate").first()).toBeVisible();
   await page.getByRole("button", { name: "확인 업무로 전환" }).click();
   await expect(page.getByText("Continuum RESUME")).toBeVisible();
+  await expect(page.getByText("Packet 발행 당시")).toBeVisible();
+  await expect(page.getByText("현재 Case", { exact: true })).toBeVisible();
+  await expect(page.getByText("Case version 0 → 3")).toBeVisible();
+  await expect(page.getByText("Open Item item_1: not_started → resolved")).toBeVisible();
+  await expect(page.getByText("Hypothesis hyp_1: unreviewed → not_supported")).toBeVisible();
+  await expect(page.getByText("cutoff 7s", { exact: true })).toBeVisible();
+  expect(resumeRequests).toBeGreaterThan(0);
+  expect(currentRunRequests).toBeGreaterThan(0);
   await page.locator(".task-form input").fill("Shift A");
   await page.locator(".task-form textarea").fill("교대 전 근거 확인 기록");
   await page.getByRole("button", { name: "응답 기록" }).click();
   await expect(page.getByText("최종 검토가 남아 있습니다")).toBeVisible();
   await page.getByPlaceholder("최종 검토자").fill("Shift B");
   await page.getByRole("button", { name: "검토 승인 후 종료" }).click();
-  await expect(page.getByRole("region", { name: "사건 상세" }).getByText("종료됨", { exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "사건 상세" }).getByText("종료됨", { exact: true }),
+  ).toBeVisible();
 });
 
-test("Continuum carries one case from shift notes to accepted handover", async ({ page }) => {
+test("Same Case adds R2 while R1 evidence links remain run scoped", async ({ page }) => {
+  const r1 = {
+    ...investigation,
+    candidates: [{ ...investigation.candidates[0], signal: "F_Filter_Ok" }],
+    evidence: [{ ...investigation.evidence[0], title: "Active alarm: F_Filter_Ok" }],
+  };
+  const r2 = {
+    ...investigation,
+    investigation_id: "inv_2",
+    diagnosis_time: 170,
+    candidates: [
+      { ...investigation.candidates[0], signal: "LP_Pump_Ok" },
+      { ...investigation.candidates[0], rank: 2, signal: "F_Filter_Ok", evidence_ids: ["E2"] },
+    ],
+    evidence: [
+      { ...investigation.evidence[0], title: "Active alarm: LP_Pump_Ok" },
+      { ...investigation.evidence[0], id: "E2", title: "Active alarm: F_Filter_Ok" },
+    ],
+  };
   let currentCase = makeCase("awaiting_evidence", 0, "pending");
-  const resume = () => ({
-    case_id: currentCase.id,
-    case_version: currentCase.version,
-    status: currentCase.status,
-    next_action: currentCase.next_action,
-    current_run: currentCase.analysis_runs[0],
-    observations: currentCase.observations.map((observation) => ({
-      id: observation.id,
-      text: observation.original_text,
-      author: observation.author,
-      recorded_at: observation.recorded_at,
-      provenance: observation.provenance,
-      is_current_state: observation.is_current_state,
-    })),
-    open_items: currentCase.open_items,
-    hypotheses: currentCase.hypotheses,
-    current_handover: currentCase.handovers.at(-1) || null,
-    current_snapshot: currentCase.handover_snapshots.at(-1) || null,
-    handover_delta: [],
-    constraints: [currentCase.next_action],
-  });
+  currentCase.analysis_runs[0].diagnosis_time = 140;
+  let postedCutoff: number | null = null;
+
   await page.route("**/api/health", (route) =>
     route.fulfill({ json: { status: "ok", llm_provider: "not_configured" } }),
   );
@@ -230,109 +283,81 @@ test("Continuum carries one case from shift notes to accepted handover", async (
   await page.route("**/api/incidents?*", (route) =>
     route.fulfill({ json: { incidents: [incident] } }),
   );
-  await page.route("**/api/incidents/case_1", (route) =>
-    route.fulfill({ json: incident }),
-  );
+  await page.route("**/api/incidents/case_1", (route) => route.fulfill({ json: incident }));
   await page.route("**/api/cases", (route) =>
     route.fulfill({ json: { cases: [currentCase] } }),
   );
-  await page.route("**/api/incidents/case_1/investigations", (route) =>
-    route.fulfill({ json: investigation }),
-  );
-  await page.route("**/api/investigations/inv_1", (route) =>
-    route.fulfill({ json: investigation }),
-  );
-  await page.route("**/api/incidents/case_1/cases", (route) =>
-    route.fulfill({ json: currentCase }),
-  );
-  await page.route("**/api/cases/case_1/resume", (route) =>
-    route.fulfill({ json: resume() }),
-  );
-  await page.route("**/api/cases/case_1/observations", (route) => {
-    currentCase = makeCase("awaiting_evidence", 1, "pending");
-    currentCase.observations = [{
-      id: "obs_1",
-      original_text: "알람 이력 확인, 현장 점검은 다음 교대에서 진행",
-      author: "Shift A",
-      observed_at: null,
-      recorded_at: "2026-01-01T01:00:00Z",
-      scope: "CNC-07",
-      source_location: "shift log",
-      provenance: "synthetic_demo",
-      approved: true,
-      is_current_state: true,
-    }];
-    return route.fulfill({ json: currentCase });
-  });
-  await page.route("**/api/cases/case_1/open-items/*/updates", (route) => {
-    currentCase = { ...currentCase, version: 2, open_items: [{ ...currentCase.open_items[0], assignee: "Shift B" }] };
-    return route.fulfill({ json: currentCase });
-  });
-  await page.route("**/api/cases/case_1/handover-checks", (route) => {
-    currentCase = { ...currentCase, version: 3 };
+  await page.route("**/api/investigations/inv_1", (route) => route.fulfill({ json: r1 }));
+  await page.route("**/api/investigations/inv_2", (route) => route.fulfill({ json: r2 }));
+  await page.route("**/api/cases/case_1/resume", (route) => {
+    const currentRun = currentCase.analysis_runs.find(
+      (item) => item.id === currentCase.current_run_id,
+    );
     return route.fulfill({
       json: {
-        case: currentCase,
-        findings: [{ code: "unresolved-open-item", severity: "warning", message: "전달", entity_id: "item_1" }],
-        blocking: false,
+        case_id: currentCase.id,
+        case_version: currentCase.version,
+        status: currentCase.status,
+        next_action: currentCase.next_action,
+        current_run: currentRun,
+        observations: [],
+        open_items: currentCase.open_items,
+        hypotheses: currentCase.hypotheses,
+        current_handover: null,
+        current_snapshot: null,
+        handover_delta: [],
+        constraints: [],
       },
     });
   });
-  await page.route("**/api/cases/case_1/handovers", (route) => {
-    const snapshot = {
-      id: "snapshot_1",
-      case_id: "case_1",
-      source_case_version: 3,
-      snapshot_hash: "hash",
-      current_run_id: "run_1",
-      hypothesis_ids: ["hyp_1"],
-      evidence_ids: ["E1"],
-      open_item_ids: ["item_1"],
-      observation_ids: ["obs_1"],
-      constraints: [],
-      payload: {},
-      findings: [],
-      created_at: "2026-01-01T03:00:00Z",
+  await page.route("**/api/cases/case_1/analysis-runs", async (route) => {
+    const body = route.request().postDataJSON();
+    postedCutoff = body.diagnosis_time;
+    const run2 = {
+      ...currentCase.analysis_runs[0],
+      id: "run_2",
+      investigation_id: "inv_2",
+      diagnosis_time: 170,
+      created_by: body.created_by,
+      created_at: "2026-01-01T01:00:00Z",
     };
-    const handover = {
-      id: "handover_1",
-      sender: "Shift A",
-      receiver: "Shift B",
-      source_case_version: 3,
-      snapshot_id: snapshot.id,
-      status: "published",
-      exception_reason: "",
-      exception_approved_by: null,
-      exception_approved_role: null,
-      change_request: "",
-      created_at: "2026-01-01T03:00:00Z",
-      published_at: "2026-01-01T03:00:00Z",
-      accepted_at: null,
-      accepted_by: null,
-      change_requested_at: null,
+    currentCase = {
+      ...currentCase,
+      version: 1,
+      current_run_id: "run_2",
+      analysis_runs: [...currentCase.analysis_runs, run2],
+      open_items: [
+        ...currentCase.open_items,
+        { ...currentCase.open_items[0], id: "item_2", run_id: "run_2" },
+      ],
+      hypotheses: [
+        ...currentCase.hypotheses,
+        { ...currentCase.hypotheses[0], id: "hyp_2", run_id: "run_2", candidate_signal: "LP_Pump_Ok" },
+      ],
+      tasks: [
+        ...currentCase.tasks,
+        { ...currentCase.tasks[0], id: "task_2", run_id: "run_2", open_item_id: "item_2", candidate_signal: "LP_Pump_Ok" },
+      ],
     };
-    currentCase = { ...currentCase, version: 4, handover_snapshots: [snapshot], handovers: [handover], current_handover_id: handover.id };
-    return route.fulfill({ json: currentCase });
-  });
-  await page.route("**/api/cases/case_1/handovers/handover_1/acceptance", (route) => {
-    currentCase = { ...currentCase, version: 5, handovers: [{ ...currentCase.handovers[0], status: "accepted", accepted_by: "Shift B" }] };
     return route.fulfill({ json: currentCase });
   });
 
   await page.goto("/");
-  await page.getByRole("button", { name: /최근 알람 발생 시점으로 이동/ }).click();
-  await page.getByRole("button", { name: "조사 실행", exact: true }).click();
-  await page.getByRole("button", { name: "확인 업무로 전환" }).click();
-  await page.getByPlaceholder("Shift A 담당자").fill("Shift A");
-  await page.getByPlaceholder("완료한 확인, 미실시 점검, 확인하지 못한 이유를 원문으로 남겨 주세요.").fill("알람 이력 확인, 현장 점검은 다음 교대에서 진행");
-  await page.getByLabel("현재 설비 상태를 함께 확인한 기록입니다").check();
-  await page.getByRole("button", { name: "관찰 기록" }).click();
-  await page.getByPlaceholder("Shift B 담당자 ID").fill("Shift B");
-  await page.getByRole("button", { name: "담당자 지정" }).click();
-  await page.getByPlaceholder("Shift A", { exact: true }).fill("Shift A");
-  await page.getByPlaceholder("Shift B", { exact: true }).fill("Shift B");
-  await page.getByRole("button", { name: "사전 점검" }).click();
-  await page.getByRole("button", { name: "Packet 발행" }).click();
-  await page.getByRole("button", { name: "인수 확인" }).click();
-  await expect(page.getByText("최근 Handover Packet · accepted", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "사건 인박스" }).click();
+  await page.locator(".case-list-item").click();
+  await expect(page.getByText("Run History")).toBeVisible();
+  await page.getByLabel("새 cutoff (초)").fill("170");
+  await page.getByLabel("실행자").fill("Shift B");
+  await page.getByRole("button", { name: "Add Analysis Run" }).click();
+
+  await expect(page.getByText("LP_Pump_Ok", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText(/현재 Run/)).toBeVisible();
+  expect(postedCutoff).toBe(170);
+
+  await page.getByRole("button", { name: "사건 인박스" }).click();
+  await expect(page.getByText("R1", { exact: true })).toBeVisible();
+  await expect(page.getByText("R2", { exact: true })).toBeVisible();
+  await page.locator(".evidence-task").first().getByRole("button", { name: /근거 E1/ }).click();
+  await expect(page.getByRole("heading", { name: "활성 알람: F_Filter_Ok" })).toBeVisible();
+  await expect(page.getByText(/과거 Run/)).toBeVisible();
 });

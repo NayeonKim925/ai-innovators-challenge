@@ -82,7 +82,9 @@ def _append_event(case: InvestigationCase, **kwargs: object) -> InvestigationCas
     return case.model_copy(update={"events": [*case.events, event], "updated_at": event.created_at})
 
 
-def _observation_task(case: InvestigationCase, created_at: str) -> EvidenceTask:
+def _observation_task(
+    case: InvestigationCase, created_at: str, run_id: str | None = None
+) -> EvidenceTask:
     return EvidenceTask(
         id=f"task_{uuid.uuid4().hex}",
         kind="collect_observation",
@@ -93,6 +95,7 @@ def _observation_task(case: InvestigationCase, created_at: str) -> EvidenceTask:
             "선택한 진단 시점 전후에 관찰한 신호, 이벤트 또는 문서 위치를 기록해 주세요. "
             "이 응답은 새 조사 실행의 입력 검토용이며, 시스템이 원인을 자동 확정하지는 않습니다."
         ),
+        run_id=run_id or case.current_run_id,
         trace_steps=[2, 3],
         created_at=created_at,
     )
@@ -102,10 +105,11 @@ def _first_task_for(
     result: InvestigationResult,
     case: InvestigationCase,
     created_at: str,
+    run_id: str,
 ) -> EvidenceTask:
     candidate = next((item for item in result.candidates if item.status == "candidate"), None)
     if candidate is None:
-        return _observation_task(case, created_at)
+        return _observation_task(case, created_at, run_id)
     return EvidenceTask(
         id=f"task_{uuid.uuid4().hex}",
         kind="verify_candidate",
@@ -117,6 +121,7 @@ def _first_task_for(
             "정비 지시가 아닙니다."
         ),
         candidate_signal=candidate.signal,
+        run_id=run_id,
         evidence_ids=candidate.evidence_ids,
         trace_steps=[2, 3, 4],
         created_at=created_at,
@@ -129,6 +134,7 @@ def _open_item_for_task(task: EvidenceTask, created_at: str) -> OpenItem:
         title=task.title,
         requested_role=task.requested_role,
         status=OpenItemStatus.NOT_STARTED,
+        run_id=task.run_id,
         evidence_ids=task.evidence_ids,
         created_at=created_at,
         updated_at=created_at,
@@ -205,7 +211,7 @@ def open_case(
     case = case.model_copy(
         update={"events": [analysis_event], "updated_at": analysis_event.created_at}
     )
-    task = _first_task_for(result, case, created_at)
+    task = _first_task_for(result, case, created_at, run.id)
     item = _open_item_for_task(task, created_at)
     task = task.model_copy(update={"open_item_id": item.id})
     case = case.model_copy(update={"tasks": [task], "open_items": [item]})
@@ -510,7 +516,7 @@ def add_analysis_run(
         created_by=created_by,
         created_at=created_at,
     )
-    task = _first_task_for(result, case, created_at)
+    task = _first_task_for(result, case, created_at, run.id)
     item = _open_item_for_task(task, created_at)
     task = task.model_copy(update={"open_item_id": item.id})
     updated = case.model_copy(
@@ -553,6 +559,7 @@ def create_open_item(
     requested_role: str,
     assignee: str | None,
     due_at: str | None,
+    run_id: str | None,
     evidence_ids: list[str],
     expected_version: int,
     investigations: InvestigationRepository,
@@ -561,13 +568,12 @@ def create_open_item(
     case = get_case(case_id, cases)
     if case.version != expected_version:
         raise CaseConflictError(case_id)
-    known_evidence = {
-        evidence.id
-        for run in case.analysis_runs
-        for result in [investigations.get(run.investigation_id)]
-        if result is not None
-        for evidence in result.evidence
-    }
+    scoped_run_id = run_id or case.current_run_id
+    scoped_run = next((run for run in case.analysis_runs if run.id == scoped_run_id), None)
+    if scoped_run is None:
+        raise CaseTransitionError("Open item references unknown analysis run")
+    result = investigations.get(scoped_run.investigation_id)
+    known_evidence = {evidence.id for evidence in result.evidence} if result else set()
     if any(evidence_id not in known_evidence for evidence_id in evidence_ids):
         raise CaseTransitionError("Open item references unknown evidence")
     item = OpenItem(
@@ -576,6 +582,7 @@ def create_open_item(
         requested_role=requested_role,  # type: ignore[arg-type]
         assignee=assignee,
         due_at=due_at,
+        run_id=scoped_run.id,
         evidence_ids=evidence_ids,
         created_at=_now(),
         updated_at=_now(),
@@ -666,13 +673,13 @@ def assess_hypothesis(
     if hypothesis is None:
         raise CaseTransitionError("Hypothesis track not found")
     known_observations = {observation.id for observation in case.observations}
-    known_evidence = {
-        evidence.id
-        for run in case.analysis_runs
-        for result in [investigations.get(run.investigation_id)]
-        if result is not None
-        for evidence in result.evidence
-    }
+    hypothesis_run = next(
+        (run for run in case.analysis_runs if run.id == hypothesis.run_id), None
+    )
+    if hypothesis_run is None:
+        raise CaseTransitionError("Hypothesis references unknown analysis run")
+    result = investigations.get(hypothesis_run.investigation_id)
+    known_evidence = {evidence.id for evidence in result.evidence} if result else set()
     if any(evidence_id not in known_evidence for evidence_id in opposing_evidence_ids):
         raise CaseTransitionError("Hypothesis references unknown evidence")
     if any(item_id not in known_observations for item_id in supporting_observation_ids):
