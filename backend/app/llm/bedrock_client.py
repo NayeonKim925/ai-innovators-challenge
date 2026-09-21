@@ -90,10 +90,17 @@ def llm_base_url() -> str:
     return os.getenv("LLM_BASE_URL", "https://52.79.201.46/v1")
 
 
-def llm_model_id() -> str:
-    """Return the model alias for the active provider."""
+def llm_model_id(task: str = "narrative") -> str:
+    """Return the model alias for the active provider and task.
+
+    Narrative output is user-facing and defaults to the stronger balanced
+    model. Future high-volume structuring calls can opt into Haiku without
+    changing the provider or the current narrative setting.
+    """
     if llm_provider() == "competition_gateway":
-        return os.getenv("LLM_MODEL", "bedrock-haiku")
+        if task == "structuring":
+            return os.getenv("LLM_STRUCTURING_MODEL", "bedrock-haiku")
+        return os.getenv("LLM_MODEL", "bedrock-gpt-5.5")
     return bedrock_model_id()
 
 

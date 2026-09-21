@@ -192,3 +192,14 @@ def test_generate_narrative_uses_competition_gateway_chat_shape(
     assert narrative == "[E1] 게이트웨이 응답입니다."
     assert trace_event.token_usage == 19
     assert "competition_gateway / bedrock-haiku" in trace_event.detail
+
+
+def test_gateway_model_defaults_split_by_task(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.llm.bedrock_client import llm_model_id
+
+    monkeypatch.setenv("LLM_PROVIDER", "competition_gateway")
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+    monkeypatch.delenv("LLM_STRUCTURING_MODEL", raising=False)
+
+    assert llm_model_id() == "bedrock-gpt-5.5"
+    assert llm_model_id("structuring") == "bedrock-haiku"
