@@ -40,3 +40,7 @@ loaders/__pycache__/
 
 # Lambda deployment build artifacts (recreated by deploy scripts).
 *.zip
+
+# Local agent and design-research working artifacts.
+.omx/
+.lazyweb/

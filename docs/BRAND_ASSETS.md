@@ -5,4 +5,4 @@
 - 브랜드 메시지·표기: [BRAND.md](BRAND.md). 시각 견본: [brand-board.html](brand-board.html). 새 이름을 적용해도 API·AWS 리소스명과 저장 ID는 유지한다.
 - 글꼴: [Pretendard 공식 저장소](https://github.com/orioncactus/pretendard), 로컬 Variable WOFF2. 재배포 라이선스는 `frontend/public/fonts/OFL.txt`에 함께 보관한다.
 - 아이콘: `lucide-react` 패키지. 아이콘만 사용한 컨트롤에는 aria-label을 제공한다.
-- 외부 레퍼런스 캡처: `.lazyweb/quick-references/investigation-2026-09-17/references/`. 내부 리서치 기록용이며 프로덕션 웹 번들에 포함하지 않는다.
+- 외부 레퍼런스 캡처는 내부 리서치 기록용 로컬 산출물이며 프로덕션 웹 번들이나 Git 저장소에 포함하지 않는다.

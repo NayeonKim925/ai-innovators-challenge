@@ -19,7 +19,7 @@ RCA Run R1
 
 현재 확인된 기준선(P0~P1 완료, 5.1 진행 기록 참고):
 
-- Backend 테스트 69개 통과
+- Backend 테스트 76개 통과
 - Frontend 테스트 14개 통과
 - Frontend build/typecheck 통과, Playwright 8개 통과
 - R1/R2 Analysis Run, Handover Snapshot, Resume 비교 화면 구현
@@ -31,10 +31,10 @@ RCA Run R1
 아직 제품 완료로 볼 수 없는 항목:
 
 - actor header가 실제 사내 인증 공급자·조직 scope와 아직 연결되지 않음(현재는 trusted header 기반)
-- CI workflow와 운영 배포 검증이 아직 없음
+- CI workflow는 추가했지만 원격 Actions 첫 실행과 운영 배포 검증은 아직 없음
 - LLM Context Structuring, AI Handover Draft는 아직 authoritative 기능으로 구현하지 않음(P2 진행)
 - Case Memory/RAG(P3)는 아직 설계 문서만 있음
-- 실제 DynamoDB 운영 크기·CI·배포 검증이 남아 있음(P4)
+- 실제 DynamoDB 운영 크기·CI 실행·배포 검증이 남아 있음(P4)
 - Case Workspace 화면의 정보 우선순위 재배치는 [UX 개편안](CONTINUUM_UX_REDESIGN_PROPOSAL.md)으로 제안된 상태이며 팀 논의 후 확정 전까지 미구현
 
 ## 2. 우선순위 원칙
@@ -268,7 +268,8 @@ P4 DynamoDB·인증·운영 배포
 - [x] body의 표시용 사용자와 인증 actor의 불일치 테스트
 - [x] `handover-checks`, publish, accept, change request audit event 검증
 - [x] FastAPI test app와 React proxy의 full-stack Playwright 실행 스크립트
-- [ ] CI workflow 업로드 권한 확인
+- [x] CI workflow 파일 추가
+- [ ] GitHub Actions 첫 실행 및 업로드 권한 확인
 - [ ] `make test`, frontend test/build, targeted Ruff, Playwright 명령을 문서화
 - [ ] P0 완료 후 이 문서의 상태와 실제 통과 로그 갱신
 - [x] P1 Shift Workspace API와 프론트 큐 연결

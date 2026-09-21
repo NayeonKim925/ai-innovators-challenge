@@ -5,7 +5,7 @@
 ## 완료
 - Inspo MCP 레퍼런스 3개와 Lazyweb 실제 화면 확인. 카드 대시보드에서 평면 조사 기록부로 변경.
 - App.tsx 의미론적 요약, 반복 아이콘/뱃지 제거; styles.css 가벼운 제목, 고정폭 ID, 행/구분선, 모바일 처리.
-- DESIGN.md, docs/BRAND.md, docs/UI_IMPLEMENTATION.md, `.lazyweb/design-improve/cluephase-console-2026-09-17/report.md` 갱신.
+- DESIGN.md, docs/BRAND.md, docs/UI_IMPLEMENTATION.md 갱신. 외부 레퍼런스 캡처는 로컬 작업 산출물로 분리한다.
 - build/typecheck, Node 테스트10개, Playwright4개 통과. 추가 모바일 결과 검증도 통과. 스크린샷은 docs/ui에 보존.
 - 변경은 로컬 파일에 저장되어 있으나 이번 변경을 커밋/푸시하지 않았다. 이전 커밋과 사용자 변경을 되돌리지 말 것.
 
