@@ -86,6 +86,12 @@ export type HandoverStatus =
   | "changes_requested"
   | "accepted"
   | "superseded";
+export type ShiftWorkspaceFilter =
+  | "all"
+  | "action_required"
+  | "handover"
+  | "open_items"
+  | "stale";
 export interface AnalysisRun {
   id: string;
   investigation_id: string;
@@ -235,6 +241,8 @@ export interface CaseEvent {
   event_type: string;
   detail: string;
   actor: "case_orchestrator" | "expert" | "operator" | "analyst" | "system";
+  actor_id?: string | null;
+  actor_role?: "operator" | "shift_lead" | "supervisor" | "maintenance_lead" | "admin" | null;
   evidence_ids: string[];
   trace_steps: number[];
   created_at: string;
@@ -268,6 +276,35 @@ export interface InvestigationCase {
   current_handover_id: string | null;
   created_at: string;
   updated_at: string;
+}
+export interface ShiftWorkspaceItem {
+  case_id: string;
+  incident_id: string;
+  case_status: CaseStatus;
+  case_version: number;
+  priority: number;
+  reasons: string[];
+  next_action: string;
+  handover_status: HandoverStatus | null;
+  handover_receiver: string | null;
+  pending_handover: boolean;
+  stale_snapshot: boolean;
+  blocking_findings: HandoverFinding[];
+  open_items: OpenItem[];
+  hypotheses: HypothesisTrack[];
+  updated_at: string;
+}
+export interface ShiftWorkspace {
+  assignee: string | null;
+  status: ShiftWorkspaceFilter;
+  summary: {
+    cases: number;
+    pending_handovers: number;
+    assigned_open_items: number;
+    stale_snapshots: number;
+    blocking_findings: number;
+  };
+  items: ShiftWorkspaceItem[];
 }
 export interface ChatResponse {
   answer: string;

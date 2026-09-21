@@ -366,6 +366,9 @@ class HandoverChangeRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=2000)
 
 
+ShiftWorkspaceFilter = Literal["all", "action_required", "handover", "open_items", "stale"]
+
+
 class ExpertTaskResponse(BaseModel):
     """A bounded expert response to a requested evidence check.
 
@@ -599,3 +602,44 @@ class InvestigationCase(BaseModel):
     reviews: list[StoredCaseReview] = Field(default_factory=list)
     created_at: str
     updated_at: str
+
+
+class ShiftWorkspaceItem(BaseModel):
+    """A compact, action-oriented Case projection for an incoming shift."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str
+    incident_id: str
+    case_status: CaseStatus
+    case_version: int = Field(ge=0)
+    priority: int = Field(ge=0)
+    reasons: list[str] = Field(default_factory=list)
+    next_action: str
+    handover_status: HandoverStatus | None = None
+    handover_receiver: str | None = None
+    pending_handover: bool = False
+    stale_snapshot: bool = False
+    blocking_findings: list[HandoverFinding] = Field(default_factory=list)
+    open_items: list[OpenItem] = Field(default_factory=list)
+    hypotheses: list[HypothesisTrack] = Field(default_factory=list)
+    updated_at: str
+
+
+class ShiftWorkspaceSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cases: int = Field(ge=0)
+    pending_handovers: int = Field(ge=0)
+    assigned_open_items: int = Field(ge=0)
+    stale_snapshots: int = Field(ge=0)
+    blocking_findings: int = Field(ge=0)
+
+
+class ShiftWorkspaceResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    assignee: str | None = None
+    status: ShiftWorkspaceFilter
+    summary: ShiftWorkspaceSummary
+    items: list[ShiftWorkspaceItem] = Field(default_factory=list)

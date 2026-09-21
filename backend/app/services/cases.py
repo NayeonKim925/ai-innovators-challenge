@@ -34,6 +34,10 @@ from ..domain import (
     OpenItem,
     OpenItemStatus,
     OperatorObservation,
+    ShiftWorkspaceFilter,
+    ShiftWorkspaceItem,
+    ShiftWorkspaceResponse,
+    ShiftWorkspaceSummary,
     StoredCaseReview,
 )
 from ..repositories.cases import CaseConflictError, CaseNotFoundError, CaseRepository
@@ -244,6 +248,152 @@ def get_case(case_id: str, cases: CaseRepository) -> InvestigationCase:
     if case is None:
         raise CaseNotFoundError(case_id)
     return case
+
+
+def build_shift_workspace(
+    *,
+    assignee: str | None,
+    status: ShiftWorkspaceFilter,
+    cases: CaseRepository,
+) -> ShiftWorkspaceResponse:
+    """Build the incoming-shift queue without changing any Case state.
+
+    The projection deliberately uses persisted handover findings and Case
+    state only. It does not infer a root cause or silently turn an accepted
+    handover into a new task.
+    """
+
+    normalized_assignee = assignee.strip() if assignee and assignee.strip() else None
+    projections: list[ShiftWorkspaceItem] = []
+    for case in list_cases(cases):
+        handover = next(
+            (item for item in reversed(case.handovers) if item.id == case.current_handover_id),
+            None,
+        )
+        snapshot = next(
+            (
+                item
+                for item in case.handover_snapshots
+                if handover and item.id == handover.snapshot_id
+            ),
+            None,
+        )
+        assigned_items = [
+            item
+            for item in case.open_items
+            if item.status is not OpenItemStatus.RESOLVED
+            and (normalized_assignee is None or item.assignee == normalized_assignee)
+        ]
+        unknown_state = any(
+            item.status
+            in {
+                OpenItemStatus.NOT_STARTED,
+                OpenItemStatus.UNAVAILABLE,
+                OpenItemStatus.NOT_RECORDED,
+            }
+            for item in assigned_items
+        )
+        pending_handover = bool(
+            handover
+            and handover.status is HandoverStatus.PUBLISHED
+            and (normalized_assignee is None or handover.receiver == normalized_assignee)
+        )
+        stale_snapshot = bool(
+            handover
+            and snapshot
+            and handover.status
+            in {
+                HandoverStatus.PUBLISHED,
+                HandoverStatus.ACCEPTED,
+                HandoverStatus.CHANGES_REQUESTED,
+            }
+            and case.version != snapshot.source_case_version
+        )
+        blocking_findings = [
+            finding
+            for finding in (snapshot.findings if snapshot else [])
+            if finding.severity.value == "blocking"
+        ]
+        if normalized_assignee is None:
+            assigned_items = [
+                item for item in case.open_items if item.status is not OpenItemStatus.RESOLVED
+            ]
+            unknown_state = any(
+                item.status
+                in {
+                    OpenItemStatus.NOT_STARTED,
+                    OpenItemStatus.UNAVAILABLE,
+                    OpenItemStatus.NOT_RECORDED,
+                }
+                for item in assigned_items
+            )
+        related_to_assignee = bool(
+            normalized_assignee is None
+            or assigned_items
+            or pending_handover
+            or (handover is not None and handover.receiver == normalized_assignee)
+        )
+        if not related_to_assignee:
+            continue
+        reasons: list[str] = []
+        if pending_handover:
+            reasons.append("pending_handover")
+        if assigned_items:
+            reasons.append("assigned_open_item")
+        if unknown_state:
+            reasons.append("unknown_state")
+        if stale_snapshot:
+            reasons.append("stale_snapshot")
+        if blocking_findings:
+            reasons.append("blocking_finding")
+        if status == "handover" and not pending_handover:
+            continue
+        if status == "open_items" and not assigned_items:
+            continue
+        if status == "stale" and not stale_snapshot:
+            continue
+        if status == "action_required" and not reasons:
+            continue
+        priority = (
+            (4 if stale_snapshot else 0)
+            + (3 if blocking_findings else 0)
+            + (2 if pending_handover else 0)
+            + (1 if assigned_items else 0)
+        )
+        projections.append(
+            ShiftWorkspaceItem(
+                case_id=case.id,
+                incident_id=case.incident_id,
+                case_status=case.status,
+                case_version=case.version,
+                priority=priority,
+                reasons=reasons,
+                next_action=case.next_action,
+                handover_status=handover.status if handover else None,
+                handover_receiver=handover.receiver if handover else None,
+                pending_handover=pending_handover,
+                stale_snapshot=stale_snapshot,
+                blocking_findings=blocking_findings,
+                open_items=assigned_items,
+                hypotheses=case.hypotheses,
+                updated_at=case.updated_at,
+            )
+        )
+
+    projections.sort(key=lambda item: item.updated_at, reverse=True)
+    projections.sort(key=lambda item: item.priority, reverse=True)
+    return ShiftWorkspaceResponse(
+        assignee=normalized_assignee,
+        status=status,
+        summary=ShiftWorkspaceSummary(
+            cases=len(projections),
+            pending_handovers=sum(item.pending_handover for item in projections),
+            assigned_open_items=sum(len(item.open_items) for item in projections),
+            stale_snapshots=sum(item.stale_snapshot for item in projections),
+            blocking_findings=sum(len(item.blocking_findings) for item in projections),
+        ),
+        items=projections,
+    )
 
 
 def _complete_task(

@@ -19,7 +19,7 @@ RCA Run R1
 
 현재 확인된 기준선:
 
-- Backend 테스트 68개 통과
+- Backend 테스트 69개 통과
 - Frontend 테스트 14개 통과
 - Frontend build/typecheck 통과
 - R1/R2 Analysis Run, Handover Snapshot, Resume 비교 화면 구현
@@ -29,9 +29,9 @@ RCA Run R1
 아직 제품 완료로 볼 수 없는 항목:
 
 - actor header가 실제 사내 인증 사용자·역할과 연결되지 않음
-- 실제 Backend를 연결한 브라우저 E2E가 없음
-- Shift 전체를 한 번에 보는 Inbox와 일반 Open Item 관리가 부족함
-- Hypothesis 판단을 UI에서 직접 기록하는 흐름이 부족함
+- CI workflow와 운영 배포 검증이 아직 없음
+- Shift 전체를 한 번에 보는 Workspace와 일반 Open Item 관리가 구현됨
+- Hypothesis 판단을 UI에서 직접 기록하는 흐름이 구현됨
 - LLM Context Structuring, AI Handover Draft는 아직 authoritative 기능으로 구현하지 않음
 - 실제 DynamoDB 운영 크기·CI·배포 검증이 남아 있음
 
@@ -84,11 +84,10 @@ RCA Run R1
 - `backend/app/main.py`, `backend/app/services/cases.py`
   - `GET /api/shift-workspace?assignee=&status=`를 추가한다.
   - 미수락 Handover, 담당 Open Item, stale Snapshot, blocking finding을 우선순위와 함께 반환한다.
-  - Open Item 생성·배정·보류·완료를 generic endpoint로 정리한다.
-  - Hypothesis `supported / not_supported / insufficient` 판단 API를 UI 계약과 맞춘다.
+  - 기존 generic Open Item endpoint를 Shift Workspace의 항목별 상태 편집과 연결한다.
+  - Hypothesis `supported / not_supported / insufficient` 판단 API를 UI 계약과 연결한다.
 - `backend/app/repositories/cases.py`
-  - 현재 aggregate scan을 유지하되, `assignee`, `status`, `updated_at` 조회 인덱스 계약을 추가한다.
-  - DynamoDB 구현에서는 조직 범위와 담당자 범위를 key 설계에 반영한다.
+  - MVP에서는 aggregate scan을 유지한다. 담당자·조직 인덱스와 DynamoDB key 설계는 운영 규모 검증(P4)에서 진행한다.
 - `frontend/src/App.tsx`
   - Case Inbox를 Shift Workspace로 확장한다.
   - 카드에 `미수락 인계`, `내 Open Item`, `미확인`, `stale` 상태를 표시한다.
@@ -102,6 +101,15 @@ RCA Run R1
 - 하나의 Case에서 Open Item 2개와 Hypothesis 2개를 각각 독립적으로 업데이트할 수 있다.
 - 담당자 변경·보류·완료가 Case version과 함께 저장된다.
 - 인계 수락과 Case 종료가 화면·API 양쪽에서 분리되어 있다.
+
+#### P1 구현 기록
+
+- `Shift Workspace`가 담당자와 보기 필터(`조치 필요`, `인수 대기`, `내 Open Item`, `최신화 필요`, `전체 관련 사건`)를 기준으로 Case를 우선순위 정렬한다.
+- 각 Workspace 카드에서 인수 대기·담당 업무·stale Snapshot·차단 이슈를 확인하고 Case 상세로 바로 진입할 수 있다.
+- Case 상세에서 모든 Open Item의 담당자·상태·보류 사유·완료 메모를 개별 저장할 수 있다.
+- Case 상세에서 각 Hypothesis를 `지지`, `지지하지 않음`, `근거 부족`, `미검토`로 독립 판단하고 이유를 기록할 수 있다.
+- 프론트 프록시 allowlist에 새 조회 경로를 추가하고 실제 FastAPI + React 경계 E2E에서 교대 큐를 검증했다.
+- 검증: backend 69 passed, frontend 14 passed, frontend build/typecheck passed, Playwright 8 passed, 변경 파일 대상 Ruff passed.
 
 ### P2 — 근거 기반 AI 보조
 
@@ -187,7 +195,7 @@ P3 권한 필터가 있는 Case Memory/RAG
 P4 DynamoDB·인증·운영 배포
 ```
 
-다음 작업은 P0의 첫 번째 PR로 시작한다. 범위는 actor context 계약, exception audit 테스트, Playwright real-backend 실행 경로까지로 제한한다. P0가 끝나기 전에는 새로운 LLM 기능이나 RAG 인덱스를 추가하지 않는다.
+다음 작업은 P1 후속으로, 실제 현장 메모를 상태 제안으로 바꾸는 P2 Proposal-only AI 보조를 설계한다. P2에서도 LLM 제안은 accept 전까지 Case aggregate와 Handover Packet을 변경하지 않는다.
 
 ## 5.1 진행 기록
 
@@ -211,6 +219,13 @@ P4 DynamoDB·인증·운영 배포
 - 테스트는 기본적으로 기존 listener를 재사용하지 않으며 `UI_TEST_PORT`, `BACKEND_TEST_PORT`, `REUSE_E2E_SERVER`로 실행 환경을 제어한다.
 - 다음 유닛: P0 잔여 CI 실행 경로 정리 후 P1 Shift Workspace의 Open Item/Hypothesis 운영 UI를 고도화한다.
 
+### 2026-09-21 — P1: Shift Workspace + Investigation State Editing
+
+- `GET /api/shift-workspace`를 추가해 담당자별 인수 대기, 담당 Open Item, stale Snapshot, blocking finding을 조치 우선순위로 제공한다.
+- 기존 Case version/CAS 계약을 유지한 채 Open Item의 배정·보류·완료와 Hypothesis 판단을 항목별 UI에서 저장하도록 연결했다.
+- React proxy allowlist와 real-backend E2E를 확장해 새 Workspace 조회가 실제 API 경계를 통과하는지 검증했다.
+- 검증: backend 69 passed, frontend 14 passed, frontend build/typecheck passed, Playwright 8 passed, 변경 파일 대상 Ruff passed.
+
 ## 5. 첫 PR의 체크리스트
 
 - [x] `CaseActor` 또는 동등한 actor context 계약 정의
@@ -221,6 +236,9 @@ P4 DynamoDB·인증·운영 배포
 - [ ] CI workflow 업로드 권한 확인
 - [ ] `make test`, frontend test/build, targeted Ruff, Playwright 명령을 문서화
 - [ ] P0 완료 후 이 문서의 상태와 실제 통과 로그 갱신
+- [x] P1 Shift Workspace API와 프론트 큐 연결
+- [x] P1 Open Item/Hypothesis 항목별 상태 저장 UI
+- [x] P1 real-backend E2E에서 교대 큐 노출 검증
 
 ## 6. 하지 않을 것
 

@@ -362,6 +362,34 @@ def test_reused_evidence_id_stays_scoped_to_its_analysis_run(tmp_path: Path) -> 
     )
     assert invalid_r1_assessment.status_code == 409
 
+    first_assessment = client.post(
+        f"/api/cases/{first_case['id']}/hypotheses/{first_hypothesis['id']}/assessments",
+        json={
+            "expected_version": rerun_case["version"],
+            "judgment": "not_supported",
+            "updated_by": "Shift B",
+            "change_reason": "첫 번째 Run의 후보는 현재 관찰로 지지되지 않음",
+        },
+    )
+    assert first_assessment.status_code == 200
+    first_assessed_case = first_assessment.json()
+    second_hypothesis = next(
+        item for item in first_assessed_case["hypotheses"] if item["id"] != first_hypothesis["id"]
+    )
+    second_assessment = client.post(
+        f"/api/cases/{first_case['id']}/hypotheses/{second_hypothesis['id']}/assessments",
+        json={
+            "expected_version": first_assessed_case["version"],
+            "judgment": "insufficient",
+            "updated_by": "Shift B",
+            "change_reason": "두 번째 후보는 추가 근거가 필요함",
+        },
+    )
+    assert second_assessment.status_code == 200
+    judgments = {item["id"]: item["judgment"] for item in second_assessment.json()["hypotheses"]}
+    assert judgments[first_hypothesis["id"]] == "not_supported"
+    assert judgments[second_hypothesis["id"]] == "insufficient"
+
     resume = client.get(f"/api/cases/{first_case['id']}/resume").json()
     assert resume["current_run"]["id"] == second_run["id"]
 
@@ -517,6 +545,86 @@ def test_handover_linter_publishes_snapshot_and_accepts_without_closing_case(
     assert accepted["events"][-1]["event_type"] == "handover_accepted"
     assert accepted["events"][-1]["actor_id"] == "shift-b-operator"
     assert accepted["events"][-1]["actor_role"] == "operator"
+
+
+def test_shift_workspace_prioritizes_assigned_items_and_stale_handover(
+    tmp_path: Path,
+) -> None:
+    client = _client(
+        tmp_path,
+        '[{"time_s":2,"signal":"P101","value":true,"kind":"Alarm"}]',
+    )
+    case = _open_case(client)
+    observed = client.post(
+        f"/api/cases/{case['id']}/observations",
+        json={
+            "expected_version": case["version"],
+            "original_text": "현재 설비는 정지 상태이며 현장 접근은 다음 교대에서 가능",
+            "author": "Shift A",
+            "provenance": "synthetic_demo",
+            "is_current_state": True,
+        },
+    ).json()
+    item = observed["open_items"][0]
+    assigned = client.post(
+        f"/api/cases/{case['id']}/open-items/{item['id']}/updates",
+        json={
+            "expected_version": observed["version"],
+            "status": "unavailable",
+            "assignee": "Shift B",
+            "completion_note": "다음 교대에서 진동을 확인",
+            "observation_ids": [observed["observations"][0]["id"]],
+        },
+    ).json()
+
+    before_handover = client.get(
+        "/api/shift-workspace?assignee=Shift%20B&status=action_required"
+    )
+    assert before_handover.status_code == 200
+    before = before_handover.json()
+    assert before["summary"]["assigned_open_items"] == 1
+    assert before["items"][0]["case_id"] == case["id"]
+    assert "assigned_open_item" in before["items"][0]["reasons"]
+
+    checked = client.post(
+        f"/api/cases/{case['id']}/handover-checks",
+        json={
+            "expected_version": assigned["version"],
+            "sender": "Shift A",
+            "receiver": "Shift B",
+        },
+    ).json()["case"]
+    published = client.post(
+        f"/api/cases/{case['id']}/handovers",
+        json={
+            "expected_version": checked["version"],
+            "sender": "Shift A",
+            "receiver": "Shift B",
+        },
+    ).json()
+    handover_view = client.get(
+        "/api/shift-workspace?assignee=Shift%20B&status=handover"
+    ).json()
+    assert handover_view["summary"]["pending_handovers"] == 1
+    assert handover_view["items"][0]["pending_handover"] is True
+    assert "pending_handover" in handover_view["items"][0]["reasons"]
+
+    changed = client.post(
+        f"/api/cases/{case['id']}/open-items/{item['id']}/updates",
+        json={
+            "expected_version": published["version"],
+            "status": "on_hold",
+            "assignee": "Shift B",
+            "hold_reason": "현장 점검 장비 대기",
+        },
+    )
+    assert changed.status_code == 200
+    stale_view = client.get(
+        "/api/shift-workspace?assignee=Shift%20B&status=stale"
+    ).json()
+    assert stale_view["summary"]["stale_snapshots"] == 1
+    assert stale_view["items"][0]["stale_snapshot"] is True
+    assert stale_view["items"][0]["case_version"] > published["version"]
 
 
 def test_handover_exception_requires_authenticated_lead(tmp_path: Path) -> None:

@@ -38,6 +38,10 @@ test("real backend preserves the investigation across a shift handover", async (
   await caseRegion.getByRole("button", { name: "Packet 발행" }).click();
   await expect(page.getByText(/최근 Handover Packet · published/)).toBeVisible();
   await expect(caseRegion).toContainText("Shift A → Shift B · published");
+  const shiftWorkspace = page.getByRole("region", { name: "내 교대 업무" });
+  await expect(shiftWorkspace).toContainText("인수 대기");
+  await expect(shiftWorkspace).toContainText("내 Open Item");
+  await expect(shiftWorkspace).toContainText("Shift B");
 
   const caseId = (
     await caseRegion.locator(".case-detail-heading p.mono").textContent()

@@ -6,7 +6,7 @@ import os
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -33,6 +33,7 @@ from .domain import (
     OpenItemUpdateRequest,
     OperatorObservationRequest,
     ReviewDecision,
+    ShiftWorkspaceFilter,
     StoredReview,
 )
 from .llm.bedrock_client import bedrock_model_id, llm_timeout_s
@@ -56,6 +57,7 @@ from .services.cases import (
     append_operator_observation,
     assess_hypothesis,
     build_resume,
+    build_shift_workspace,
     check_handover,
     create_open_item,
     get_case,
@@ -282,6 +284,19 @@ def create_app(
     def cases(authorization: str | None = Header(default=None)) -> dict[str, object]:
         require_api_token(authorization)
         return {"cases": [item.model_dump(mode="json") for item in list_cases(app.state.cases)]}
+
+    @app.get("/api/shift-workspace")
+    def shift_workspace(
+        assignee: str | None = Query(default=None, max_length=120),
+        status: ShiftWorkspaceFilter = Query(default="action_required"),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_api_token(authorization)
+        return build_shift_workspace(
+            assignee=assignee,
+            status=status,
+            cases=app.state.cases,
+        ).model_dump(mode="json")
 
     @app.get("/api/cases/{case_id}")
     def case_detail(
