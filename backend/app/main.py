@@ -348,6 +348,7 @@ def create_app(
                 requested_role=body.requested_role,
                 assignee=body.assignee,
                 due_at=body.due_at,
+                run_id=body.run_id,
                 evidence_ids=body.evidence_ids,
                 expected_version=body.expected_version,
                 investigations=app.state.investigations,

@@ -25,23 +25,49 @@ def lint_case(
 
     findings: list[HandoverFinding] = []
     known_observation_ids = {item.id for item in case.observations}
-    known_evidence_ids: set[str] | None = None
+    run_ids = {run.id for run in case.analysis_runs}
+    evidence_by_run: dict[str, set[str]] | None = None
     if investigations is not None:
-        known_evidence_ids = {
-            evidence.id
+        evidence_by_run = {
+            run.id: (
+                {evidence.id for evidence in result.evidence}
+                if (result := investigations.get(run.investigation_id)) is not None
+                else set()
+            )
             for run in case.analysis_runs
-            for result in [investigations.get(run.investigation_id)]
-            if result is not None
-            for evidence in result.evidence
         }
+
+    def has_invalid_evidence(run_id: str | None, evidence_ids: list[str]) -> bool:
+        if evidence_by_run is None:
+            return False
+        if run_id is None:
+            # Compatibility for an in-memory legacy object. Persisted Cases are
+            # backfilled with a Run by the repository reader.
+            all_evidence = set().union(*evidence_by_run.values()) if evidence_by_run else set()
+            return bool(set(evidence_ids) - all_evidence)
+        if run_id not in run_ids:
+            return True
+        return bool(set(evidence_ids) - evidence_by_run.get(run_id, set()))
+
+    for task in case.tasks:
+        if task.run_id is not None and task.run_id not in run_ids:
+            invalid_task_reference = True
+        else:
+            invalid_task_reference = has_invalid_evidence(task.run_id, task.evidence_ids)
+        if invalid_task_reference:
+            findings.append(
+                HandoverFinding(
+                    code="invalid-reference",
+                    severity=HandoverFindingSeverity.BLOCKING,
+                    message="Evidence Task가 해당 분석 Run에 없는 근거를 참조합니다.",
+                    entity_id=task.id,
+                )
+            )
     for item in case.open_items:
         invalid_observations = set(item.observation_ids) - known_observation_ids
-        invalid_evidence = (
-            set(item.evidence_ids) - known_evidence_ids
-            if known_evidence_ids is not None
-            else set()
-        )
-        if invalid_observations or invalid_evidence:
+        invalid_evidence = has_invalid_evidence(item.run_id, item.evidence_ids)
+        invalid_run = item.run_id is not None and item.run_id not in run_ids
+        if invalid_observations or invalid_evidence or invalid_run:
             findings.append(
                 HandoverFinding(
                     code="invalid-reference",
@@ -52,13 +78,12 @@ def lint_case(
             )
     for hypothesis in case.hypotheses:
         invalid_observations = set(hypothesis.supporting_observation_ids) - known_observation_ids
-        invalid_evidence = (
-            (set(hypothesis.evidence_ids) | set(hypothesis.opposing_evidence_ids))
-            - known_evidence_ids
-            if known_evidence_ids is not None
-            else set()
+        invalid_evidence = has_invalid_evidence(
+            hypothesis.run_id,
+            [*hypothesis.evidence_ids, *hypothesis.opposing_evidence_ids],
         )
-        if invalid_observations or invalid_evidence:
+        invalid_run = hypothesis.run_id not in run_ids
+        if invalid_observations or invalid_evidence or invalid_run:
             findings.append(
                 HandoverFinding(
                     code="invalid-reference",
@@ -67,7 +92,6 @@ def lint_case(
                     entity_id=hypothesis.id,
                 )
             )
-    run_ids = {run.id for run in case.analysis_runs}
     if case.current_run_id is None or case.current_run_id not in run_ids:
         findings.append(
             HandoverFinding(

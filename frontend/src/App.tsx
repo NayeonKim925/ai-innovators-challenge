@@ -34,6 +34,7 @@ import {
 } from "./api";
 import type {
   ChatResponse,
+  CaseResume,
   Dataset,
   Health,
   Incident,
@@ -45,6 +46,7 @@ import type {
   ExpertResponseOutcome,
   HandoverFinding,
 } from "./api";
+import { describeHandoverDelta, snapshotEntities } from "./resume";
 import {
   displayCaseEventDetail,
   displayCaseEventType,
@@ -240,7 +242,16 @@ export default function App() {
   const [handoverReceiver, setHandoverReceiver] = useState("");
   const [handoverFindings, setHandoverFindings] = useState<HandoverFinding[]>([]);
   const [handoverBusy, setHandoverBusy] = useState(false);
+  const [resume, setResume] = useState<CaseResume | null>(null);
+  const [resumeLoading, setResumeLoading] = useState(false);
+  const [resumeError, setResumeError] = useState("");
+  const [analysisRunCutoff, setAnalysisRunCutoff] = useState(0);
+  const [analysisRunCreator, setAnalysisRunCreator] = useState("");
+  const [analysisRunQuestion, setAnalysisRunQuestion] = useState("");
+  const [analysisRunBusy, setAnalysisRunBusy] = useState(false);
   const revision = useRef(0);
+  const displayedRunRevision = useRef(0);
+  const displayedCaseRunId = useRef<string | null>(null);
   useEffect(() => {
     const ctl = new AbortController();
     Promise.all([
@@ -323,6 +334,54 @@ export default function App() {
       });
     return () => ctl.abort();
   }, [selected, selectionVersion]);
+  useEffect(() => {
+    if (!activeCase) {
+      setResume(null);
+      setResumeError("");
+      return;
+    }
+    const ctl = new AbortController();
+    const runRevision = displayedRunRevision.current;
+    setResumeLoading(true);
+    setResumeError("");
+    api<CaseResume>(`/cases/${encodeURIComponent(activeCase.id)}/resume`, {
+      signal: ctl.signal,
+    })
+      .then(async (nextResume) => {
+        if (ctl.signal.aborted) return;
+        setResume(nextResume);
+        if (!nextResume.current_run) {
+          setRun(null);
+          setEvidenceId("");
+          return;
+        }
+        const investigation = await api<Investigation>(
+          `/investigations/${encodeURIComponent(nextResume.current_run.investigation_id)}`,
+          { signal: ctl.signal },
+        );
+        if (
+          ctl.signal.aborted ||
+          runRevision !== displayedRunRevision.current ||
+          (displayedCaseRunId.current !== null &&
+            displayedCaseRunId.current !== nextResume.current_run.id)
+        ) return;
+        displayedCaseRunId.current = nextResume.current_run.id;
+        setRun(investigation);
+        setEvidenceId(investigation.evidence[0]?.id || "");
+      })
+      .catch((error) => {
+        if (!ctl.signal.aborted) setResumeError(message(error));
+      })
+      .finally(() => {
+        if (!ctl.signal.aborted) setResumeLoading(false);
+      });
+    return () => ctl.abort();
+  }, [activeCase?.id, activeCase?.version]);
+  useEffect(() => {
+    if (resume?.current_run) {
+      setAnalysisRunCutoff(resume.current_run.diagnosis_time);
+    }
+  }, [resume?.current_run?.id]);
   async function investigate() {
     if (!incident || busy) return;
     const rev = ++revision.current;
@@ -379,17 +438,86 @@ export default function App() {
     setCaseBusy(true);
     setActionError("");
     try {
-      const investigation = await api<Investigation>(
-        `/investigations/${encodeURIComponent(nextCase.investigation_id)}`,
-      );
       setActiveCase(nextCase);
+      displayedCaseRunId.current = null;
       setCaseChat([]);
-      setRun(investigation);
-      setEvidenceId(investigation.evidence[0]?.id || "");
+      setRun(null);
+      setEvidenceId("");
     } catch (e) {
       setActionError(message(e));
     } finally {
       setCaseBusy(false);
+    }
+  }
+  async function showCaseRun(runId: string | null, nextEvidenceId = "") {
+    if (!activeCase || caseBusy) return;
+    const target = activeCase.analysis_runs.find(
+      (item) => item.id === (runId || activeCase.current_run_id),
+    );
+    if (!target) {
+      setActionError("연결된 Analysis Run을 찾을 수 없습니다.");
+      return;
+    }
+    setCaseBusy(true);
+    displayedRunRevision.current += 1;
+    displayedCaseRunId.current = target.id;
+    setActionError("");
+    try {
+      const investigation = await api<Investigation>(
+        `/investigations/${encodeURIComponent(target.investigation_id)}`,
+      );
+      setRun(investigation);
+      setEvidenceId(nextEvidenceId || investigation.evidence[0]?.id || "");
+      setPage("workspace");
+      setTab("results");
+    } catch (e) {
+      setActionError(message(e));
+    } finally {
+      setCaseBusy(false);
+    }
+  }
+  async function addCaseAnalysisRun() {
+    if (
+      !activeCase ||
+      !analysisRunCreator.trim() ||
+      analysisRunBusy ||
+      analysisRunCutoff <= (resume?.current_run?.diagnosis_time ?? -1)
+    ) return;
+    setAnalysisRunBusy(true);
+    displayedRunRevision.current += 1;
+    setActionError("");
+    try {
+      const updated = await post<InvestigationCase>(
+        `/cases/${encodeURIComponent(activeCase.id)}/analysis-runs`,
+        {
+          expected_version: activeCase.version,
+          diagnosis_time: analysisRunCutoff,
+          question: analysisRunQuestion,
+          created_by: analysisRunCreator.trim(),
+          idempotency_key: crypto.randomUUID(),
+        },
+      );
+      const current = updated.analysis_runs.find(
+        (item) => item.id === updated.current_run_id,
+      );
+      if (!current) throw new Error("새 Analysis Run이 Case에 기록되지 않았습니다.");
+      displayedCaseRunId.current = current.id;
+      const investigation = await api<Investigation>(
+        `/investigations/${encodeURIComponent(current.investigation_id)}`,
+      );
+      replaceCase(updated);
+      setRun(investigation);
+      setEvidenceId(investigation.evidence[0]?.id || "");
+      setAnalysisRunQuestion("");
+      setNotice(
+        `새 Analysis Run ${shortId(current.id)}을 추가했습니다. 이전 Run은 History에 보존됩니다.`,
+      );
+      setPage("workspace");
+      setTab("results");
+    } catch (e) {
+      setActionError(message(e));
+    } finally {
+      setAnalysisRunBusy(false);
     }
   }
   async function openCase() {
@@ -404,6 +532,7 @@ export default function App() {
       const investigation = await api<Investigation>(
         `/investigations/${encodeURIComponent(created.investigation_id)}`,
       );
+      displayedCaseRunId.current = created.current_run_id;
       replaceCase(created);
       setCaseChat([]);
       setRun(investigation);
@@ -729,6 +858,21 @@ export default function App() {
     return times.length ? Math.max(...times) : null;
   }, [incident]);
   const evidence = run?.evidence.find((e) => e.id === evidenceId);
+  const displayedAnalysisRun = activeCase?.analysis_runs.find(
+    (item) => item.investigation_id === run?.investigation_id,
+  );
+  const snapshotObservations = snapshotEntities(
+    resume?.current_snapshot || null,
+    "observations",
+  );
+  const snapshotOpenItems = snapshotEntities(
+    resume?.current_snapshot || null,
+    "open_items",
+  );
+  const snapshotHypotheses = snapshotEntities(
+    resume?.current_snapshot || null,
+    "hypotheses",
+  );
   const title = {
     workspace: "조사 워크스페이스",
     cases: "사건 인박스",
@@ -1264,6 +1408,14 @@ export default function App() {
                                   진단 {number(run.diagnosis_time, 1)}s ·{" "}
                                   {displayText(run.mode)} · 확정 원인이 아닙니다
                                 </p>
+                                {displayedAnalysisRun && (
+                                  <p className="mono">
+                                    Run {shortId(displayedAnalysisRun.id)}
+                                    {displayedAnalysisRun.id === activeCase?.current_run_id
+                                      ? " · 현재 Run"
+                                      : " · 과거 Run"}
+                                  </p>
+                                )}
                               </div>
                               <span className="badge teal">
                                 근거 {run.evidence.length}개
@@ -1677,24 +1829,186 @@ export default function App() {
                             </div>
                             <RefreshCw size={21} />
                           </div>
+                          {resumeLoading && (
+                            <div className="resume-loading" role="status">
+                              <LoaderCircle className="spin" size={16} /> 최신 인계 상태를 불러오는 중입니다.
+                            </div>
+                          )}
+                          {resumeError && <ErrorBox text={`Resume을 불러오지 못했습니다. ${resumeError}`} />}
                           <div className="resume-grid">
                             <div>
                               <strong>현재 상태</strong>
-                              <p>{caseStatusLabel[activeCase.status]} · 최종 원인 미확정</p>
+                              <p>{caseStatusLabel[resume?.status || activeCase.status]} · 최종 원인 미확정</p>
                             </div>
                             <div>
                               <strong>현재 분석 Run</strong>
-                              <p className="mono">{activeCase.current_run_id || "기록 없음"}</p>
+                              <p className="mono">{resume?.current_run?.id || activeCase.current_run_id || "기록 없음"}</p>
+                              {resume?.current_run && <small>cutoff {resume.current_run.diagnosis_time}s</small>}
                             </div>
                             <div>
-                              <strong>이미 기록된 관찰</strong>
-                              <p>{activeCase.observations.length}개 · 원문 보존</p>
+                              <strong>최신 Handover</strong>
+                              <p>
+                                {resume?.current_handover
+                                  ? `${resume.current_handover.sender} → ${resume.current_handover.receiver} · ${resume.current_handover.status}`
+                                  : "발행 기록 없음"}
+                              </p>
                             </div>
                             <div>
                               <strong>남은 Open Item</strong>
-                              <p>{activeCase.open_items.filter((item) => item.status !== "resolved").length}개 · 인계 대상</p>
+                              <p>{(resume?.open_items || activeCase.open_items).filter((item) => item.status !== "resolved").length}개 · 인계 대상</p>
                             </div>
                           </div>
+                          <section className="analysis-run-panel" aria-label="Analysis Run 추가 및 이력">
+                            <div className="analysis-run-controls">
+                              <div>
+                                <span className="eyebrow">SAME CASE ANALYSIS</span>
+                                <h4>더 늦은 시점으로 분석 이어가기</h4>
+                                <p>새 Run을 추가해도 이전 Run과 연결된 근거 업무, Open Item, Hypothesis는 그대로 보존됩니다.</p>
+                              </div>
+                              <form
+                                onSubmit={(event) => {
+                                  event.preventDefault();
+                                  void addCaseAnalysisRun();
+                                }}
+                              >
+                                <label>
+                                  새 cutoff (초)
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step="0.1"
+                                    value={analysisRunCutoff}
+                                    onChange={(event) => setAnalysisRunCutoff(Number(event.target.value))}
+                                  />
+                                </label>
+                                <label>
+                                  실행자
+                                  <input
+                                    value={analysisRunCreator}
+                                    onChange={(event) => setAnalysisRunCreator(event.target.value)}
+                                    placeholder="Shift B 담당자"
+                                    maxLength={120}
+                                  />
+                                </label>
+                                <label className="analysis-run-question">
+                                  조사 질문 (선택)
+                                  <input
+                                    value={analysisRunQuestion}
+                                    onChange={(event) => setAnalysisRunQuestion(event.target.value)}
+                                    placeholder="추가 데이터까지 포함해 다시 확인"
+                                    maxLength={2000}
+                                  />
+                                </label>
+                                <button
+                                  className="button primary"
+                                  disabled={
+                                    !analysisRunCreator.trim() ||
+                                    analysisRunBusy ||
+                                    activeCase.status === "closed" ||
+                                    analysisRunCutoff <= (resume?.current_run?.diagnosis_time ?? -1)
+                                  }
+                                >
+                                  {analysisRunBusy ? <LoaderCircle className="spin" size={15} /> : <Play size={15} />}
+                                  Add Analysis Run
+                                </button>
+                              </form>
+                              {resume?.current_run && analysisRunCutoff <= resume.current_run.diagnosis_time && (
+                                <small>현재 cutoff {resume.current_run.diagnosis_time}s보다 늦은 시점을 입력해 주세요.</small>
+                              )}
+                            </div>
+                            <div className="analysis-run-history">
+                              <strong>Run History</strong>
+                              <ol>
+                                {activeCase.analysis_runs.map((item, index) => (
+                                  <li key={item.id}>
+                                    <span className="run-order">R{index + 1}</span>
+                                    <div>
+                                      <code>{item.id}</code>
+                                      <small>cutoff {item.diagnosis_time}s · {new Date(item.created_at).toLocaleString("ko-KR")}</small>
+                                    </div>
+                                    {item.id === activeCase.current_run_id && <span className="badge teal">현재</span>}
+                                    <button
+                                      className="button secondary compact"
+                                      disabled={caseBusy}
+                                      onClick={() => void showCaseRun(item.id)}
+                                    >
+                                      결과 보기
+                                    </button>
+                                  </li>
+                                ))}
+                              </ol>
+                            </div>
+                          </section>
+                          {resume && (
+                            <div className="continuity-comparison" aria-label="Handover 당시와 현재 상태 비교">
+                              <section className="continuity-state at-handover">
+                                <span className="eyebrow">AT HANDOVER</span>
+                                <h4>Packet 발행 당시</h4>
+                                {resume.current_snapshot ? (
+                                  <>
+                                    <p className="continuity-meta">
+                                      Case 버전 {resume.current_snapshot.source_case_version} · Snapshot {shortId(resume.current_snapshot.id)}
+                                    </p>
+                                    <dl className="continuity-facts">
+                                      <div><dt>Run</dt><dd className="mono">{resume.current_snapshot.current_run_id || "기록 없음"}</dd></div>
+                                      <div><dt>Observation</dt><dd>{snapshotObservations.length}개</dd></div>
+                                      <div><dt>Open Item</dt><dd>{snapshotOpenItems.length}개 · 미해결 {snapshotOpenItems.filter((item) => item.status !== "resolved").length}개</dd></div>
+                                    </dl>
+                                    <div className="continuity-list">
+                                      <strong>Hypothesis</strong>
+                                      {snapshotHypotheses.length ? (
+                                        <ul>{snapshotHypotheses.map((item) => <li key={item.id}><span>{item.candidate_signal}</span><code>{item.judgment}</code></li>)}</ul>
+                                      ) : <p>기록 없음</p>}
+                                    </div>
+                                  </>
+                                ) : (
+                                  <p className="continuity-empty">아직 발행된 Handover Snapshot이 없습니다.</p>
+                                )}
+                              </section>
+                              <section className="continuity-state current">
+                                <span className="eyebrow">CURRENT</span>
+                                <h4>현재 Case</h4>
+                                <p className="continuity-meta">
+                                  Case 버전 {resume.case_version} · {caseStatusLabel[resume.status]}
+                                </p>
+                                <dl className="continuity-facts">
+                                  <div><dt>Run</dt><dd className="mono">{resume.current_run?.id || "기록 없음"}</dd></div>
+                                  <div><dt>Observation</dt><dd>{resume.observations.length}개</dd></div>
+                                  <div><dt>Open Item</dt><dd>{resume.open_items.length}개 · 미해결 {resume.open_items.filter((item) => item.status !== "resolved").length}개</dd></div>
+                                </dl>
+                                <div className="continuity-list">
+                                  <strong>미해결 Open Item</strong>
+                                  {resume.open_items.some((item) => item.status !== "resolved") ? (
+                                    <ul>{resume.open_items.filter((item) => item.status !== "resolved").map((item) => <li key={item.id}><span>{item.title}</span><code>{item.status}</code></li>)}</ul>
+                                  ) : <p>없음</p>}
+                                </div>
+                                <div className="continuity-list">
+                                  <strong>Hypothesis</strong>
+                                  {resume.hypotheses.length ? (
+                                    <ul>{resume.hypotheses.map((item) => <li key={item.id}><span>{item.candidate_signal}</span><code>{item.judgment}</code></li>)}</ul>
+                                  ) : <p>기록 없음</p>}
+                                </div>
+                              </section>
+                              <section className="handover-delta">
+                                <span className="eyebrow">CHANGES SINCE HANDOVER</span>
+                                <h4>인계 이후 변경</h4>
+                                {!resume.current_snapshot ? (
+                                  <p>Snapshot 발행 후 변경을 비교할 수 있습니다.</p>
+                                ) : resume.handover_delta.length ? (
+                                  <ul>
+                                    {resume.handover_delta.map((delta, index) => (
+                                      <li key={`${delta.kind}-${"id" in delta ? delta.id : index}`}>
+                                        <ChevronRight size={14} />
+                                        <span>{describeHandoverDelta(delta, resume)}</span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p>Handover 이후 기록된 변경이 없습니다.</p>
+                                )}
+                              </section>
+                            </div>
+                          )}
                           <div className="handover-forms">
                             <form
                               className="review-form"
@@ -1875,13 +2189,9 @@ export default function App() {
                                     task.evidence_ids.map((id) => (
                                       <button
                                         key={id}
-                                        onClick={() => {
-                                          setEvidenceId(id);
-                                          setPage("workspace");
-                                          setTab("results");
-                                        }}
+                                        onClick={() => void showCaseRun(task.run_id, id)}
                                       >
-                                        근거 {id}
+                                        근거 {id} · {shortId(task.run_id || activeCase.current_run_id || "legacy")}
                                       </button>
                                     ))
                                   ) : (

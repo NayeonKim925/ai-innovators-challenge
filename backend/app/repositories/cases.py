@@ -23,23 +23,52 @@ def _read_case(payload: object) -> InvestigationCase:
         if isinstance(payload, str)
         else InvestigationCase.model_validate(payload)
     )
-    if case.analysis_runs or not case.investigation_id:
-        return case
-    legacy_run = AnalysisRun(
-        id=f"run_legacy_{case.investigation_id}",
-        investigation_id=case.investigation_id,
-        incident_id=case.incident_id,
-        dataset=case.dataset,
-        diagnosis_time=0,
-        algorithm_version="legacy-unknown",
-        created_by="legacy_reader",
-        created_at=case.created_at,
-    )
+    if not case.analysis_runs and case.investigation_id:
+        legacy_run = AnalysisRun(
+            id=f"run_legacy_{case.investigation_id}",
+            investigation_id=case.investigation_id,
+            incident_id=case.incident_id,
+            dataset=case.dataset,
+            diagnosis_time=0,
+            algorithm_version="legacy-unknown",
+            created_by="legacy_reader",
+            created_at=case.created_at,
+        )
+        case = case.model_copy(
+            update={
+                "analysis_runs": [legacy_run],
+                "current_run_id": legacy_run.id,
+            }
+        )
+
+    def run_at(created_at: str) -> str | None:
+        earlier = [run for run in case.analysis_runs if run.created_at <= created_at]
+        if earlier:
+            return max(earlier, key=lambda run: run.created_at).id
+        return case.analysis_runs[0].id if case.analysis_runs else case.current_run_id
+
+    tasks = [
+        task
+        if task.run_id is not None
+        else task.model_copy(update={"run_id": run_at(task.created_at)})
+        for task in case.tasks
+    ]
+    task_run_by_item = {
+        task.open_item_id: task.run_id for task in tasks if task.open_item_id is not None
+    }
+    open_items = [
+        item
+        if item.run_id is not None
+        else item.model_copy(
+            update={"run_id": task_run_by_item.get(item.id) or run_at(item.created_at)}
+        )
+        for item in case.open_items
+    ]
     return case.model_copy(
         update={
-            "schema_version": max(case.schema_version, 2),
-            "analysis_runs": [legacy_run],
-            "current_run_id": legacy_run.id,
+            "schema_version": max(case.schema_version, 3),
+            "tasks": tasks,
+            "open_items": open_items,
         }
     )
 

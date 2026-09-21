@@ -292,6 +292,7 @@ class OpenItemRequest(BaseModel):
     requested_role: Literal["operator", "process_expert", "equipment_expert"]
     assignee: str | None = Field(default=None, max_length=120)
     due_at: str | None = None
+    run_id: str | None = Field(default=None, max_length=80)
     evidence_ids: list[str] = Field(default_factory=list)
 
 
@@ -373,6 +374,8 @@ class EvidenceTask(BaseModel):
     title: str = Field(min_length=1, max_length=240)
     instructions: str = Field(min_length=1, max_length=2000)
     candidate_signal: str | None = Field(default=None, max_length=120)
+    # Evidence IDs are only unique inside one immutable AnalysisRun.
+    run_id: str | None = Field(default=None, max_length=80)
     evidence_ids: list[str] = Field(default_factory=list)
     trace_steps: list[int] = Field(default_factory=list)
     open_item_id: str | None = Field(default=None, max_length=80)
@@ -425,6 +428,8 @@ class OpenItem(BaseModel):
     requested_role: Literal["operator", "process_expert", "equipment_expert"]
     due_at: str | None = None
     hold_reason: str = Field(default="", max_length=2000)
+    # Optional only while reading legacy Case JSON written before schema v3.
+    run_id: str | None = Field(default=None, max_length=80)
     evidence_ids: list[str] = Field(default_factory=list)
     observation_ids: list[str] = Field(default_factory=list)
     completion_note: str = Field(default="", max_length=2000)
@@ -554,7 +559,7 @@ class InvestigationCase(BaseModel):
     investigation_id: str
     status: CaseStatus
     version: int = Field(default=0, ge=0)
-    schema_version: int = Field(default=2, ge=1)
+    schema_version: int = Field(default=3, ge=1)
     current_run_id: str | None = Field(default=None, max_length=80)
     analysis_runs: list[AnalysisRun] = Field(default_factory=list)
     observations: list[OperatorObservation] = Field(default_factory=list)
