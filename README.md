@@ -2,9 +2,9 @@
 
 **근무는 끝나도, 조사는 끊기면 안 됩니다.**
 
-제조 이상 조사·교대 연속성 워크스페이스. 이름은 단서(Clue)와 조사 단계·공정(Phase)을 연결합니다. [브랜드 가이드](docs/BRAND.md)에서 이름·메시지·사용 규칙을 확인할 수 있습니다.
+Continuum은 **제조 이상 조사·교대 연속성 워크스페이스**입니다. RCA가 제시한 Candidate와 Evidence를 출발점으로, 사람의 관찰·판단·미해결 업무와 분석 이력을 하나의 Case에 축적합니다. 다음 교대는 인계 당시와 현재 상태를 비교하고 같은 사건의 조사를 이어갈 수 있습니다. [브랜드 가이드](docs/BRAND.md)에서 이름·메시지·사용 규칙을 확인할 수 있습니다.
 
-제조 공정에서 발생한 이상을 조사하기 위한 **근거 중심(evidence-first) 연구용 MVP**입니다. 현장 운영자, 공정·설비 전문가, 데이터 분석가가 같은 관측값·원인 후보·검토 이력을 확인할 수 있도록 설계합니다.
+제조 공정에서 발생한 이상을 조사하기 위한 **근거 중심(evidence-first) 연구용 MVP**입니다. 현장 운영자, 공정·설비 전문가, 데이터 분석가가 같은 관측값·원인 후보·검토 이력을 확인할 수 있도록 설계합니다. RCA 모델 자체보다 **RCA 이후 교대 간 조사 연속성**에 제품의 초점을 둡니다.
 
 이 서비스는 설비를 제어하는 시스템이 아닙니다. 화면의 후보 신호는 조사 우선순위일 뿐, 확정된 물리적 원인이나 정비 지시가 아닙니다.
 
@@ -17,17 +17,49 @@
 - causRCA 데이터 준비 및 benchmark 연동: 구현 완료(100개 사건 runtime/evaluation 분리)
 - Metal Etch 이식성 어댑터: 다음 단계
 - 전문가 검토 저장: 구현 완료
-- 사건 인박스와 증거 확인·최종 검토 게이트: 기존 흐름 구현 완료(로컬 in-memory, AWS용 DynamoDB 저장소 구현)
-- Continuum Case 연속성: 다중 분석 Run·교대 인계·Resume·Case Q&A를 구현 중이며 [전환 계획](docs/CONTINUUM_DEVELOPMENT_PLAN.md)과 [트러블슈팅](docs/CONTINUUM_TROUBLESHOOTING.md)을 기준으로 한다
+- 사건 인박스와 증거 확인·최종 검토 게이트: 기본 흐름 구현 완료(로컬 in-memory, AWS용 DynamoDB 저장소 구현)
+- **Case 조사 기록:** OperatorObservation, EvidenceTask, Open Item, Hypothesis Track, Case Q&A 구현
+- **교대 인계와 Resume:** Handover Check·Snapshot 발행·수락·변경 요청, Resume API·React UI, At Handover/Current 비교와 `handover_delta` 구현
+- **같은 Case의 후속 분석:** 다중 Analysis Run, R2 실행 UI, Run History, 현재 Run 전환, Run 단위 Evidence 참조 `(run_id, evidence_id)` 구현
+- **Case 데이터 보호:** `expected_version`을 이용한 변경 충돌 방지, schema v3 및 기존 Case 읽기 호환 처리
 - 조사 UI: React/TypeScript UI를 Continuum release path로 사용하고, 기존 Streamlit은 비교·복구용으로 보존
 
+**남은 주요 작업:** 여러 Case를 교대 단위로 묶는 Shift Workspace/Inbox 고도화, 실제 작업자·교대 인증과 권한, Hypothesis 평가 UI와 Open Item 일반 관리 UI, CI 복구, 실시간 설비 데이터 연결, production 수준의 DynamoDB 구조·운영 검증. **AI Handover Draft와 AI Shift Brief는 향후 계획**이며 현재 기능이 아닙니다. 자세한 방향은 [전환 계획](docs/CONTINUUM_DEVELOPMENT_PLAN.md)과 [트러블슈팅](docs/CONTINUUM_TROUBLESHOOTING.md)을 참고합니다.
+
 UI 의사결정 원본은 [DESIGN.md](DESIGN.md), 실행 및 프록시 보안 경계는 [프론트 가이드](frontend/README.md), 레퍼런스 선택 근거는 [디자인 리서치](.lazyweb/quick-references/investigation-2026-09-17/report.md)에 있습니다.
+
+## Continuum 흐름
+
+```text
+Machine/HIL Alarm·Event observations
+    → RCA Run R1 (선택한 cutoff까지 분석)
+    → Candidate + Evidence (조사 우선순위와 관측 근거)
+    → Case
+    → Shift A 조사: Observation · Hypothesis · Open Item
+    → Handover Snapshot 발행
+    → Shift B Resume: At Handover ↔ Current ↔ handover_delta
+    → 같은 Case에 Analysis Run R2 추가
+    → 이전 Run과 인계 이력을 보존하며 추가 조사
+```
+
+RCA Run은 관측 데이터에서 후보와 근거를 계산합니다. 작업자의 확인·관찰·가설 판단과 인계는 별도의 사람 입력 및 Case 기록이며, RCA 결과가 이를 대신 확정하지 않습니다.
+
+- **Case:** 하나의 이상 사건을 여러 교대가 이어서 조사하는 전체 기록
+- **Run:** 특정 cutoff까지의 데이터로 실행한 한 번의 RCA 분석
+- **Resume:** 다음 교대가 Case의 현재 상태를 이어받는 화면
+- **Snapshot:** Handover 발행 당시의 Case 상태
+- **`handover_delta`:** Snapshot과 현재 Case의 차이
+- **Open Item:** 아직 완료되지 않은 조사 업무
+
+### causRCA 데이터와 데모 기록의 경계
+
+causRCA는 실제 제조 작업자의 Shift A/B 교대 인수인계 기록을 제공하지 않습니다. 현재 데모에서 **causRCA 기반** 데이터는 HIL에서 준비한 Alarm/Event observation과 이를 입력으로 계산한 RCA Candidate, runtime observation에 연결된 Evidence입니다. **Synthetic 또는 사용자 입력** 데이터는 Shift A/B 역할, OperatorObservation, 작업자의 점검 행동, Hypothesis 판단, Open Item 담당자 지정, Handover 행위와 내용입니다. 이런 기록을 causRCA에서 관측된 실제 현장 행동으로 해석해서는 안 됩니다.
 
 ## 제품·데이터 결정
 
 MVP는 여러 제조 AI 기능을 나열하지 않고, **제조 이상을 협업으로 조사하는 하나의 워크플로우**에 집중합니다.
 
-- **causRCA**는 원인 정답을 제공하므로 핵심 성능을 검증하는 주 benchmark입니다.
+- **causRCA**는 평가 영역에 분리된 원인 정답을 제공하므로 핵심 성능을 검증하는 주 benchmark입니다. 서비스 runtime에는 그 정답을 제공하지 않습니다.
 - **Metal Etch**는 구조가 다른 반도체 식각 데이터를 같은 조사 흐름으로 연결하는 이식성 어댑터입니다. causRCA와 데이터를 합치지 않으며, 핵심 원인 순위 성능 주장에도 사용하지 않습니다.
 - **PHM, SECOM, WM-811K**는 MVP 기능이 아닌 후속 어댑터 후보입니다.
 
@@ -100,3 +132,4 @@ scripts/                   재현 가능한 데이터 준비 명령
 ## 기존 Metal Etch 탐색 파일
 
 루트의 Metal Etch 로더와 `processed/` 출력은 새 아키텍처보다 먼저 작성된 데이터 탐색 결과입니다. 현재는 연구 자료로만 보존하며, 서비스 API로 확장하지 않습니다. 재사용 시에는 전용 Metal Etch 어댑터로 이전하고 관측 데이터와 평가 라벨을 분리해야 합니다.
+
