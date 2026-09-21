@@ -1,0 +1,8 @@
+<svg width="256" height="256" viewBox="0 0 256 256" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>Continuum mark</title>
+  <rect width="256" height="256" rx="56" fill="#E7F5F2"/>
+  <path d="M181 70C165 53 143 44 119 46C78 49 47 83 47 126C47 169 78 203 119 206C143 208 165 199 181 182" stroke="#103540" stroke-width="18" stroke-linecap="round"/>
+  <path d="M74 127H178" stroke="#087F7B" stroke-width="14" stroke-linecap="round"/>
+  <circle cx="74" cy="127" r="17" fill="#087F7B" stroke="#E7F5F2" stroke-width="7"/>
+  <circle cx="178" cy="127" r="17" fill="#D97706" stroke="#E7F5F2" stroke-width="7"/>
+</svg>

@@ -1153,7 +1153,7 @@ export default function App() {
           }}
         >
           <span className="brand-symbol">
-            <img src="/brand-mark.png" alt="" />
+            <img src="/brand-mark.svg" alt="" />
           </span>
           <span className="brand-wordmark">
             {brand.name}<small>{brand.koreanName} · 근거 중심 조사</small>
@@ -2090,12 +2090,12 @@ export default function App() {
                     <div className="case-inbox-heading">
                       <div>
                         <span className="eyebrow">CASE INBOX</span>
-                        <h2>진행 중 사건</h2>
+                        <h2>확인이 필요한 Case</h2>
                       </div>
                       <span className="badge neutral">{cases.length}</span>
                     </div>
                     <p>
-                      후보만 보여 주지 않고, 아직 닫히지 않은 증거 업무를 중심으로 봅니다.
+                      아직 확인이 끝나지 않아 다음 작업이 필요한 사건만 보여줍니다.
                     </p>
                     <div className="case-list">
                       {cases.length ? (
@@ -2113,7 +2113,7 @@ export default function App() {
                                 {caseStatusLabel[item.status]}
                               </span>
                             </div>
-                            <p>{item.tasks.filter((task) => task.status === "pending").length}개 확인 업무 · {shortId(item.id)}</p>
+                            <p>{item.tasks.filter((task) => task.status === "pending").length}개 확인 업무 · 다음 작업 필요</p>
                             <time>{new Date(item.updated_at).toLocaleString("ko-KR")}</time>
                           </button>
                         ))
@@ -2946,7 +2946,7 @@ export default function App() {
           {page === "guide" && (
             <section className="panel standalone guide">
               <div className="guide-brand">
-                <img src="/brand-mark.png" width="48" height="48" alt="" />
+                <img src="/brand-mark.svg" width="48" height="48" alt="" />
                 <div><strong>{brand.name}</strong><span>{brand.koreanName} · {brand.descriptor}</span></div>
               </div>
               <p className="brand-tagline">{brand.tagline}</p>
