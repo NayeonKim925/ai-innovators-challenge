@@ -13,6 +13,7 @@ import uuid
 from datetime import UTC, datetime
 
 from ..domain import (
+    ActorRole,
     AnalysisRun,
     CaseEvent,
     CaseReviewDecision,
@@ -63,6 +64,8 @@ def _event(
     event_type: str,
     detail: str,
     actor: str,
+    actor_id: str | None = None,
+    actor_role: ActorRole | None = None,
     evidence_ids: list[str] | None = None,
     trace_steps: list[int] | None = None,
 ) -> CaseEvent:
@@ -71,6 +74,8 @@ def _event(
         event_type=event_type,  # type: ignore[arg-type]
         detail=detail,
         actor=actor,  # type: ignore[arg-type]
+        actor_id=actor_id,
+        actor_role=actor_role,
         evidence_ids=evidence_ids or [],
         trace_steps=trace_steps or [],
         created_at=_now(),
@@ -769,6 +774,8 @@ def check_handover(
     expected_version: int,
     sender: str,
     receiver: str,
+    actor_id: str,
+    actor_role: ActorRole,
     investigations: InvestigationRepository,
     cases: CaseRepository,
 ) -> tuple[list[HandoverFinding], InvestigationCase]:
@@ -791,6 +798,8 @@ def check_handover(
             f"finding_hash={finding_hash}."
         ),
         actor="operator",
+        actor_id=actor_id,
+        actor_role=actor_role,
     )
     return findings, _persist_updated_case(current=case, updated=updated, cases=cases)
 
@@ -801,8 +810,8 @@ def publish_handover(
     sender: str,
     receiver: str,
     exception_reason: str,
-    actor_id: str | None,
-    actor_role: str,
+    actor_id: str,
+    actor_role: ActorRole,
     expected_version: int,
     investigations: InvestigationRepository,
     cases: CaseRepository,
@@ -855,6 +864,8 @@ def publish_handover(
             f"Snapshot {snapshot.id} is fixed to Case version {handover.source_case_version}."
         ),
         actor="operator",
+        actor_id=actor_id,
+        actor_role=actor_role,
     )
     if exception_reason.strip():
         updated = _append_event(
@@ -865,6 +876,8 @@ def publish_handover(
                 f"{exception_reason}"
             ),
             actor="operator",
+            actor_id=actor_id,
+            actor_role=actor_role,
         )
     return _persist_updated_case(current=case, updated=updated, cases=cases)
 
@@ -875,6 +888,8 @@ def accept_handover(
     handover_id: str,
     snapshot_id: str,
     accepted_by: str,
+    actor_id: str,
+    actor_role: ActorRole,
     expected_version: int,
     cases: CaseRepository,
 ) -> InvestigationCase:
@@ -904,6 +919,8 @@ def accept_handover(
             event_type="handover_superseded",
             detail="The published Snapshot is stale because the Case changed after publication.",
             actor="system",
+            actor_id=actor_id,
+            actor_role=actor_role,
         )
         _persist_updated_case(current=case, updated=updated, cases=cases)
         raise CaseTransitionError("Published Snapshot is stale and must be reviewed again")
@@ -930,6 +947,8 @@ def accept_handover(
             "Case investigation remains independent from handover acceptance."
         ),
         actor="operator",
+        actor_id=actor_id,
+        actor_role=actor_role,
     )
     return _persist_updated_case(current=case, updated=updated, cases=cases)
 
@@ -940,6 +959,8 @@ def request_handover_changes(
     handover_id: str,
     requested_by: str,
     reason: str,
+    actor_id: str,
+    actor_role: ActorRole,
     expected_version: int,
     cases: CaseRepository,
 ) -> InvestigationCase:
@@ -973,6 +994,8 @@ def request_handover_changes(
         event_type="handover_changes_requested",
         detail=f"{requested_by} requested changes to handover {handover_id}: {reason}",
         actor="operator",
+        actor_id=actor_id,
+        actor_role=actor_role,
     )
     return _persist_updated_case(current=case, updated=updated, cases=cases)
 

@@ -435,6 +435,7 @@ def test_handover_linter_publishes_snapshot_and_accepts_without_closing_case(
 
     check = client.post(
         f"/api/cases/{case['id']}/handover-checks",
+        headers={"X-Actor-Id": "shift-a-operator", "X-Actor-Role": "operator"},
         json={
             "expected_version": assigned["version"],
             "sender": "Shift A",
@@ -445,6 +446,8 @@ def test_handover_linter_publishes_snapshot_and_accepts_without_closing_case(
     assert check.json()["blocking"] is False
     assert any(item["code"] == "unresolved-open-item" for item in check.json()["findings"])
     assert check.json()["case"]["events"][-1]["event_type"] == "handover_linted"
+    assert check.json()["case"]["events"][-1]["actor_id"] == "shift-a-operator"
+    assert check.json()["case"]["events"][-1]["actor_role"] == "operator"
 
     checked = check.json()["case"]
     published_response = client.post(
@@ -464,9 +467,13 @@ def test_handover_linter_publishes_snapshot_and_accepts_without_closing_case(
     assert snapshot["source_case_version"] == checked["version"]
     assert snapshot["open_item_ids"] == [item["id"]]
     assert snapshot["payload"]["case_id"] == case["id"]
+    assert published["events"][-1]["event_type"] == "handover_published"
+    assert published["events"][-1]["actor_id"] == "Shift A"
+    assert published["events"][-1]["actor_role"] == "operator"
 
     requested = client.post(
         f"/api/cases/{case['id']}/handovers/{handover['id']}/change-requests",
+        headers={"X-Actor-Id": "shift-b-operator", "X-Actor-Role": "operator"},
         json={
             "expected_version": published["version"],
             "requested_by": "Shift B",
@@ -477,6 +484,9 @@ def test_handover_linter_publishes_snapshot_and_accepts_without_closing_case(
     requested_case = requested.json()
     assert requested_case["handovers"][-1]["status"] == "changes_requested"
     assert "clarify" in requested_case["next_action"]
+    assert requested_case["events"][-1]["event_type"] == "handover_changes_requested"
+    assert requested_case["events"][-1]["actor_id"] == "shift-b-operator"
+    assert requested_case["events"][-1]["actor_role"] == "operator"
 
     republished_response = client.post(
         f"/api/cases/{case['id']}/handovers",
@@ -493,6 +503,7 @@ def test_handover_linter_publishes_snapshot_and_accepts_without_closing_case(
 
     accepted_response = client.post(
         f"/api/cases/{case['id']}/handovers/{handover['id']}/acceptance",
+        headers={"X-Actor-Id": "shift-b-operator", "X-Actor-Role": "operator"},
         json={
             "expected_version": published["version"],
             "snapshot_id": snapshot["id"],
@@ -503,6 +514,9 @@ def test_handover_linter_publishes_snapshot_and_accepts_without_closing_case(
     accepted = accepted_response.json()
     assert accepted["handovers"][-1]["status"] == "accepted"
     assert accepted["status"] == "awaiting_evidence"
+    assert accepted["events"][-1]["event_type"] == "handover_accepted"
+    assert accepted["events"][-1]["actor_id"] == "shift-b-operator"
+    assert accepted["events"][-1]["actor_role"] == "operator"
 
 
 def test_handover_exception_requires_authenticated_lead(tmp_path: Path) -> None:
@@ -537,6 +551,8 @@ def test_handover_exception_requires_authenticated_lead(tmp_path: Path) -> None:
     handover = allowed.json()["handovers"][-1]
     assert handover["exception_approved_by"] == "lead-1"
     assert handover["exception_approved_role"] == "shift_lead"
+    assert allowed.json()["events"][-1]["actor_id"] == "lead-1"
+    assert allowed.json()["events"][-1]["actor_role"] == "shift_lead"
 
 
 def test_handover_requires_explicit_current_state_observation(tmp_path: Path) -> None:

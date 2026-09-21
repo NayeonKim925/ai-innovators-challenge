@@ -12,6 +12,8 @@ from fastapi.responses import JSONResponse
 
 from .data.runtime_repository import JsonRuntimeRepository
 from .domain import (
+    ActorContext,
+    ActorRole,
     AnalysisRunRequest,
     CaseChatRequest,
     CaseCreateRequest,
@@ -88,6 +90,24 @@ def create_app(
     app.state.repository = repository or JsonRuntimeRepository()
     app.state.investigations = investigations or build_investigation_repository()
     app.state.cases = cases or build_case_repository()
+
+    def resolve_actor_context(
+        actor_id: str | None,
+        actor_role: ActorRole | None,
+        fallback_id: str,
+    ) -> ActorContext:
+        """Resolve trusted request context while preserving local-MVP compatibility.
+
+        Production deployments require both headers in middleware. Local tests and
+        the research UI can still exercise the domain contract without auth setup;
+        those calls are explicitly marked as a local fallback in the event payload.
+        """
+        has_trusted_context = bool(actor_id and actor_role)
+        return ActorContext(
+            actor_id=actor_id or fallback_id,
+            role=actor_role or "operator",
+            source="trusted_header" if has_trusted_context else "local_fallback",
+        )
     origins = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
     app.add_middleware(
         CORSMiddleware,
@@ -454,14 +474,19 @@ def create_app(
         case_id: str,
         body: HandoverCheckRequest,
         authorization: str | None = Header(default=None),
+        actor_id: str | None = Header(default=None, alias="X-Actor-Id"),
+        actor_role: ActorRole | None = Header(default=None, alias="X-Actor-Role"),
     ) -> dict[str, object]:
         require_api_token(authorization)
+        actor = resolve_actor_context(actor_id, actor_role, body.sender)
         try:
             findings, linted_case = check_handover(
                 case_id=case_id,
                 expected_version=body.expected_version,
                 sender=body.sender,
                 receiver=body.receiver,
+                actor_id=actor.actor_id,
+                actor_role=actor.role,
                 investigations=app.state.investigations,
                 cases=app.state.cases,
             )
@@ -483,17 +508,18 @@ def create_app(
         body: HandoverPublishRequest,
         authorization: str | None = Header(default=None),
         actor_id: str | None = Header(default=None, alias="X-Actor-Id"),
-        actor_role: str | None = Header(default=None, alias="X-Actor-Role"),
+        actor_role: ActorRole | None = Header(default=None, alias="X-Actor-Role"),
     ) -> dict[str, object]:
         require_api_token(authorization)
+        actor = resolve_actor_context(actor_id, actor_role, body.sender)
         try:
             case = publish_handover(
                 case_id=case_id,
                 sender=body.sender,
                 receiver=body.receiver,
                 exception_reason=body.exception_reason,
-                actor_id=actor_id,
-                actor_role=actor_role or "operator",
+                actor_id=actor.actor_id,
+                actor_role=actor.role,
                 expected_version=body.expected_version,
                 investigations=app.state.investigations,
                 cases=app.state.cases,
@@ -520,14 +546,19 @@ def create_app(
         handover_id: str,
         body: HandoverAcceptanceRequest,
         authorization: str | None = Header(default=None),
+        actor_id: str | None = Header(default=None, alias="X-Actor-Id"),
+        actor_role: ActorRole | None = Header(default=None, alias="X-Actor-Role"),
     ) -> dict[str, object]:
         require_api_token(authorization)
+        actor = resolve_actor_context(actor_id, actor_role, body.accepted_by)
         try:
             case = accept_handover(
                 case_id=case_id,
                 handover_id=handover_id,
                 snapshot_id=body.snapshot_id,
                 accepted_by=body.accepted_by,
+                actor_id=actor.actor_id,
+                actor_role=actor.role,
                 expected_version=body.expected_version,
                 cases=app.state.cases,
             )
@@ -545,14 +576,19 @@ def create_app(
         handover_id: str,
         body: HandoverChangeRequest,
         authorization: str | None = Header(default=None),
+        actor_id: str | None = Header(default=None, alias="X-Actor-Id"),
+        actor_role: ActorRole | None = Header(default=None, alias="X-Actor-Role"),
     ) -> dict[str, object]:
         require_api_token(authorization)
+        actor = resolve_actor_context(actor_id, actor_role, body.requested_by)
         try:
             case = request_handover_changes(
                 case_id=case_id,
                 handover_id=handover_id,
                 requested_by=body.requested_by,
                 reason=body.reason,
+                actor_id=actor.actor_id,
+                actor_role=actor.role,
                 expected_version=body.expected_version,
                 cases=app.state.cases,
             )

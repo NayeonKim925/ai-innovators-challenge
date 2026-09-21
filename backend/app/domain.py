@@ -78,6 +78,25 @@ class HandoverFindingSeverity(str, Enum):
     WARNING = "warning"
 
 
+ActorRole = Literal[
+    "operator",
+    "shift_lead",
+    "supervisor",
+    "maintenance_lead",
+    "admin",
+]
+
+
+class ActorContext(BaseModel):
+    """Trusted identity context attached to a state-changing Case action."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    actor_id: str = Field(min_length=1, max_length=120)
+    role: ActorRole
+    source: Literal["trusted_header", "local_fallback"] = "trusted_header"
+
+
 class ExpertResponseOutcome(str, Enum):
     """Outcome of an evidence check, never a root-cause confirmation."""
 
@@ -531,6 +550,8 @@ class CaseEvent(BaseModel):
     ]
     detail: str = Field(min_length=1, max_length=2000)
     actor: Literal["case_orchestrator", "expert", "operator", "analyst", "system"]
+    actor_id: str | None = Field(default=None, max_length=120)
+    actor_role: ActorRole | None = None
     evidence_ids: list[str] = Field(default_factory=list)
     trace_steps: list[int] = Field(default_factory=list)
     created_at: str

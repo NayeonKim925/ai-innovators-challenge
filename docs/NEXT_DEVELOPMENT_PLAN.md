@@ -189,6 +189,17 @@ P4 DynamoDB·인증·운영 배포
 
 다음 작업은 P0의 첫 번째 PR로 시작한다. 범위는 actor context 계약, exception audit 테스트, Playwright real-backend 실행 경로까지로 제한한다. P0가 끝나기 전에는 새로운 LLM 기능이나 RAG 인덱스를 추가하지 않는다.
 
+## 5.1 진행 기록
+
+### 2026-09-21 — P0 Unit 1: Actor Context + Handover Audit
+
+- `ActorRole`과 `ActorContext` 계약을 추가했다.
+- handover lint, publish, change request, acceptance 이벤트에 `actor_id`와 `actor_role`을 남긴다.
+- production에서는 `X-Actor-Id`와 `X-Actor-Role` 헤더를 요구하고, local research 환경에서는 body 표시자 기반 fallback을 사용한다.
+- exception publish의 lead/supervisor 역할 검증과 actor audit 회귀 테스트를 고정했다.
+- 검증: backend 68 passed, frontend 14 passed, frontend build passed, 변경 파일 대상 Ruff passed.
+- 다음 유닛: FastAPI + React proxy를 실제 backend로 연결하는 full-stack Playwright E2E 경로.
+
 ## 5. 첫 PR의 체크리스트
 
 - [ ] `CaseActor` 또는 동등한 actor context 계약 정의
