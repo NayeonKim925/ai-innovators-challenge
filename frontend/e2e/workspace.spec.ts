@@ -51,7 +51,7 @@ test("real data: investigate, inspect evidence, review, ask, export, restore", a
   const chunks: Buffer[] = [];
   for await (const chunk of stream!) chunks.push(Buffer.from(chunk));
   const reportText = Buffer.concat(chunks).toString("utf8");
-  expect(reportText).toContain("# Continuum · 제조 이상 조사·교대 인수인계 보고서");
+  expect(reportText).toContain("# Continuum · 제조 이상 조사 보고서");
   expect(reportText).toContain("근무는 끝나도, 조사는 끊기면 안 됩니다.");
   expect(reportText).toContain("확정된 원인이나 설비 조작 지시가 아닙니다.");
   await page.getByRole("tab", { name: "근거에 질문" }).click();

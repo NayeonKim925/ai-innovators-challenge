@@ -200,13 +200,24 @@ P4 DynamoDB·인증·운영 배포
 - 검증: backend 68 passed, frontend 14 passed, frontend build passed, 변경 파일 대상 Ruff passed.
 - 다음 유닛: FastAPI + React proxy를 실제 backend로 연결하는 full-stack Playwright E2E 경로.
 
+### 2026-09-21 — P0 Unit 2: Real Backend E2E
+
+- Playwright가 실제 FastAPI와 React production proxy를 독립적으로 실행하도록 구성했다.
+- E2E 프로세스에 production API token과 actor context header를 주입해 인증 경계를 함께 검증한다.
+- Case 생성 → 관찰 기록 → Open Item 담당자 지정 → Handover lint → Packet 발행 → 다음 Shift 인수 확인 흐름을 추가했다.
+- 저장된 Case event에서 `handover_published`, `handover_accepted`와 actor identity를 직접 검증한다.
+- mock 기반 기존 Continuum 시나리오와 real-data workspace 시나리오도 함께 회귀 검증한다.
+- 검증: Playwright 8 passed, backend 68 passed, frontend 14 passed, frontend build passed, 변경 파일 대상 Ruff passed.
+- 테스트는 기본적으로 기존 listener를 재사용하지 않으며 `UI_TEST_PORT`, `BACKEND_TEST_PORT`, `REUSE_E2E_SERVER`로 실행 환경을 제어한다.
+- 다음 유닛: P0 잔여 CI 실행 경로 정리 후 P1 Shift Workspace의 Open Item/Hypothesis 운영 UI를 고도화한다.
+
 ## 5. 첫 PR의 체크리스트
 
-- [ ] `CaseActor` 또는 동등한 actor context 계약 정의
-- [ ] exception publish의 허용 역할·거부 응답 테스트
-- [ ] body의 표시용 사용자와 인증 actor의 불일치 테스트
-- [ ] `handover-checks`, publish, accept, change request audit event 검증
-- [ ] FastAPI test app와 React proxy의 full-stack Playwright 실행 스크립트
+- [x] `CaseActor` 또는 동등한 actor context 계약 정의
+- [x] exception publish의 허용 역할·거부 응답 테스트
+- [x] body의 표시용 사용자와 인증 actor의 불일치 테스트
+- [x] `handover-checks`, publish, accept, change request audit event 검증
+- [x] FastAPI test app와 React proxy의 full-stack Playwright 실행 스크립트
 - [ ] CI workflow 업로드 권한 확인
 - [ ] `make test`, frontend test/build, targeted Ruff, Playwright 명령을 문서화
 - [ ] P0 완료 후 이 문서의 상태와 실제 통과 로그 갱신

@@ -346,8 +346,11 @@ test("Same Case adds R2 while R1 evidence links remain run scoped", async ({ pag
   await page.getByRole("button", { name: "사건 인박스" }).click();
   await page.locator(".case-list-item").click();
   await expect(page.getByText("Run History")).toBeVisible();
+  await expect(page.getByText("cutoff 140s", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("새 cutoff (초)")).toHaveValue("140");
   await page.getByLabel("새 cutoff (초)").fill("170");
   await page.getByLabel("실행자").fill("Shift B");
+  await expect(page.getByLabel("새 cutoff (초)")).toHaveValue("170");
   await page.getByRole("button", { name: "Add Analysis Run" }).click();
 
   await expect(page.getByText("LP_Pump_Ok", { exact: true }).first()).toBeVisible();
