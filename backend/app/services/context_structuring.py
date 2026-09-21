@@ -331,7 +331,11 @@ def accept_structuring_proposal(
     if proposal.kind == "open_item":
         return create_open_item(
             case_id=proposal.case_id,
-            title=proposal.suggested_open_item_title or proposal.source_text[:240],
+            title=(
+                request.edited_text
+                or proposal.suggested_open_item_title
+                or proposal.source_text[:240]
+            ),
             requested_role=proposal.suggested_open_item_role or "operator",
             assignee=None,
             due_at=None,
@@ -348,7 +352,8 @@ def accept_structuring_proposal(
             judgment=proposal.suggested_judgment,
             updated_by=request.accepted_by,
             change_reason=(
-                proposal.suggested_reason
+                request.edited_text
+                or proposal.suggested_reason
                 or "Accepted from a reviewed structuring proposal."
             ),
             supporting_observation_ids=[],

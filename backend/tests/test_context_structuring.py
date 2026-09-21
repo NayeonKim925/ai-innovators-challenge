@@ -102,3 +102,36 @@ def test_structuring_proposal_can_be_edited_before_acceptance(tmp_path: Path) ->
 
     assert accepted.status_code == 200
     assert accepted.json()["observations"][0]["original_text"].startswith("Coolant 압력")
+
+
+def test_structuring_proposals_are_restored_and_can_be_dismissed_without_case_mutation(
+    tmp_path: Path,
+) -> None:
+    client = _client(tmp_path)
+    case = _open_case(client)
+    response = client.post(
+        f"/api/cases/{case['id']}/structuring-proposals",
+        json={
+            "expected_version": case["version"],
+            "note": "Vibration은 아직 확인하지 못했습니다.",
+            "author": "Shift A",
+        },
+    )
+    assert response.status_code == 200
+    proposals = response.json()["proposals"]
+    proposal = proposals[0]
+
+    restored = client.get(f"/api/cases/{case['id']}/structuring-proposals")
+    assert restored.status_code == 200
+    assert {item["id"] for item in restored.json()["proposals"]} == {
+        item["id"] for item in proposals
+    }
+
+    dismissed = client.post(
+        f"/api/cases/{case['id']}/structuring-proposals/{proposal['id']}/dismiss",
+        json={"dismissed_by": "Shift B"},
+    )
+    assert dismissed.status_code == 200
+    assert client.get(f"/api/cases/{case['id']}").json()["version"] == case["version"]
+    remaining = client.get(f"/api/cases/{case['id']}/structuring-proposals").json()["proposals"]
+    assert [item["id"] for item in remaining] == [item["id"] for item in proposals[1:]]

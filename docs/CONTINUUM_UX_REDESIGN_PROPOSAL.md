@@ -11,14 +11,6 @@
 - Evidence 확인 업무
 - Hypothesis
 - Handover
-
-추가로 UX 변경이 다음 계약을 깨뜨리지 않는지 Backend/API 회귀 검증에 포함한다.
-
-- `expected_version` 충돌 방지와 stale accept 거절
-- `X-Actor-Id`/`X-Actor-Role` 및 Handover audit 기록
-- Handover publish/accept/change-request 상태 전이
-- `(run_id, evidence_id)` 기준의 Run-scoped Evidence 조회
-- AI 제안은 accept 전까지 Case aggregate와 Handover Packet을 변경하지 않는 경계
 - Snapshot
 - Resume / Handover Delta
 - 동일 Case의 추가 분석(R2)
@@ -463,6 +455,14 @@ R2의 E1 → R2 Evidence
 - R1/R2 추가 분석
 - Evidence scope
 - Handover
+
+추가로 UX 변경이 다음 계약을 깨뜨리지 않는지 Backend/API 회귀 검증에 포함한다.
+
+- `expected_version` 충돌 방지와 stale accept 거절
+- `X-Actor-Id`/`X-Actor-Role` 및 Handover audit 기록
+- Handover publish/accept/change-request 상태 전이
+- `(run_id, evidence_id)` 기준의 Run-scoped Evidence 조회
+- AI 제안은 accept 전까지 Case aggregate와 Handover Packet을 변경하지 않는 경계
 
 ---
 

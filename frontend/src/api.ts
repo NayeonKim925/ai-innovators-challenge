@@ -312,6 +312,36 @@ export interface ChatResponse {
   blocked: boolean;
   llm_status: string;
 }
+export type StructuringProposalKind = "observation" | "open_item" | "hypothesis";
+export interface StructuringProposal {
+  id: string;
+  case_id: string;
+  case_version: number;
+  kind: StructuringProposalKind;
+  source_text: string;
+  source_span: [number, number];
+  confidence: number;
+  missing_evidence: string[];
+  suggested_observation: string | null;
+  suggested_open_item_title: string | null;
+  suggested_open_item_role: "operator" | "process_expert" | "equipment_expert" | null;
+  target_hypothesis_id: string | null;
+  suggested_judgment: "unreviewed" | "supported" | "not_supported" | "insufficient" | null;
+  suggested_reason: string;
+  author: string;
+  observed_at: string | null;
+  scope: string;
+  source_location: string;
+  provenance: "actual" | "synthetic_demo" | "simulated";
+  llm_status: string;
+  generator: "deterministic" | "llm";
+  created_at: string;
+}
+export interface StructuringProposalResponse {
+  case_id: string;
+  case_version: number;
+  proposals: StructuringProposal[];
+}
 export interface Health {
   status: string;
   llm_provider: string;

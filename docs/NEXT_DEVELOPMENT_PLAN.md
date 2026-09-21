@@ -253,6 +253,14 @@ P4 DynamoDB·인증·운영 배포
 - React proxy allowlist와 API 회귀 테스트를 추가했다. UI에 저장된 상태와 AI 제안 화면을 분리하는 작업은 다음 P2 Unit에서 진행한다.
 - 검증: backend 75 passed, frontend 14 passed, frontend build/typecheck passed, Ruff passed.
 
+### 2026-09-21 — P2 Unit 2: Reviewable Structuring Queue UI
+
+- 구조화 제안을 Case aggregate와 분리된 repository 계약으로 저장한다. 로컬은 in-memory, 배포 환경은 `STRUCTURING_PROPOSAL_DDB_TABLE`로 DynamoDB를 선택한다.
+- Case 상세에서 교대 메모를 제안으로 생성하고, 원문·Case version·신뢰도·미확인 근거를 확인한 뒤 내용을 수정할 수 있다.
+- `검토 후 저장`만 기존 결정론적 Observation/Open Item/Hypothesis 전이를 호출한다. Case version이 달라진 stale 제안은 수락할 수 없고, `보류`는 Case를 변경하지 않는다.
+- GET 조회로 Case 재진입 시 검토 대기 제안을 복원하고, React proxy allowlist에 조회·보류 경로를 추가했다.
+- 검증: backend 76 passed, changed-file Ruff passed, frontend 14 passed, frontend typecheck/build passed.
+
 ## 5. 첫 PR의 체크리스트
 
 - [x] `CaseActor` 또는 동등한 actor context 계약 정의

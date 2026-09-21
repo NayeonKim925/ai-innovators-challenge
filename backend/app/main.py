@@ -36,6 +36,7 @@ from .domain import (
     ShiftWorkspaceFilter,
     StoredReview,
     StructuringProposalAcceptRequest,
+    StructuringProposalDismissRequest,
     StructuringProposalRequest,
     StructuringProposalResponse,
 )
@@ -51,6 +52,10 @@ from .repositories.investigation_store import (
     build_investigation_repository,
 )
 from .repositories.investigations import InvestigationNotFoundError
+from .repositories.structuring_proposals import (
+    StructuringProposalRepository,
+    build_structuring_proposal_repository,
+)
 from .services.case_chat import answer_case_question
 from .services.cases import (
     CaseTransitionError,
@@ -88,6 +93,7 @@ def create_app(
     repository: JsonRuntimeRepository | None = None,
     investigations: InvestigationRepository | None = None,
     cases: CaseRepository | None = None,
+    structuring_proposals: StructuringProposalRepository | None = None,
 ) -> FastAPI:
     app = FastAPI(
         title="Manufacturing Investigation API",
@@ -99,9 +105,11 @@ def create_app(
     app.state.repository = repository or JsonRuntimeRepository()
     app.state.investigations = investigations or build_investigation_repository()
     app.state.cases = cases or build_case_repository()
-    # Proposal records are intentionally non-authoritative and short-lived in
-    # the MVP. Accepted proposals are removed after passing through Case CAS.
-    app.state.structuring_proposals = {}
+    # Proposals are intentionally non-authoritative. Only an explicit accept
+    # transition can change the Case aggregate.
+    app.state.structuring_proposals = (
+        structuring_proposals or build_structuring_proposal_repository()
+    )
 
     def resolve_actor_context(
         actor_id: str | None,
@@ -345,11 +353,29 @@ def create_app(
             include_llm=body.include_llm,
         )
         for proposal in proposals:
-            app.state.structuring_proposals[proposal.id] = proposal
+            app.state.structuring_proposals.save(proposal)
         return StructuringProposalResponse(
             case_id=case.id,
             case_version=case.version,
             proposals=proposals,
+        ).model_dump(mode="json")
+
+    @app.get("/api/cases/{case_id}/structuring-proposals")
+    def list_structuring_proposals(
+        case_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        """Restore pending proposals without treating them as Case state."""
+
+        require_api_token(authorization)
+        try:
+            case = get_case(case_id, app.state.cases)
+        except CaseNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Case not found") from exc
+        return StructuringProposalResponse(
+            case_id=case.id,
+            case_version=case.version,
+            proposals=app.state.structuring_proposals.list_for_case(case.id),
         ).model_dump(mode="json")
 
     @app.post("/api/cases/{case_id}/structuring-proposals/{proposal_id}/accept")
@@ -381,8 +407,24 @@ def create_app(
             raise HTTPException(status_code=409, detail="Case changed. Refresh and retry.") from exc
         except CaseTransitionError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        del app.state.structuring_proposals[proposal_id]
+        app.state.structuring_proposals.delete(proposal_id)
         return updated.model_dump(mode="json")
+
+    @app.post("/api/cases/{case_id}/structuring-proposals/{proposal_id}/dismiss")
+    def dismiss_case_structuring_proposal(
+        case_id: str,
+        proposal_id: str,
+        body: StructuringProposalDismissRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, str]:
+        """Remove a proposal from the review queue without mutating the Case."""
+
+        require_api_token(authorization)
+        proposal = app.state.structuring_proposals.get(proposal_id)
+        if proposal is None or proposal.case_id != case_id:
+            raise HTTPException(status_code=404, detail="Structuring proposal not found")
+        app.state.structuring_proposals.delete(proposal_id)
+        return {"proposal_id": proposal_id, "status": "dismissed"}
 
     @app.post("/api/cases/{case_id}/observations")
     def record_observation(

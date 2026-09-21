@@ -230,6 +230,14 @@ class StructuringProposalAcceptRequest(BaseModel):
     edited_text: str | None = Field(default=None, min_length=1, max_length=4000)
 
 
+class StructuringProposalDismissRequest(BaseModel):
+    """Dismisses a reviewable proposal without changing Case state."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dismissed_by: str = Field(min_length=1, max_length=120)
+
+
 class StructuringProposal(BaseModel):
     """A stored, reviewable suggestion; it is not Case state."""
 

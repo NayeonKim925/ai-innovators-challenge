@@ -50,6 +50,7 @@ import type {
   HandoverFinding,
   ShiftWorkspace,
   ShiftWorkspaceFilter,
+  StructuringProposal,
 } from "./api";
 import { describeHandoverDelta, snapshotEntities } from "./resume";
 import {
@@ -258,6 +259,13 @@ export default function App() {
   const [openItemAssignee, setOpenItemAssignee] = useState("");
   const [openItemDrafts, setOpenItemDrafts] = useState<Record<string, { status: OpenItemStatus; assignee: string; note: string }>>({});
   const [hypothesisReasons, setHypothesisReasons] = useState<Record<string, string>>({});
+  const [structuringNote, setStructuringNote] = useState("");
+  const [structuringAuthor, setStructuringAuthor] = useState("");
+  const [structuringReviewer, setStructuringReviewer] = useState("Shift B");
+  const [structuringIncludeAI, setStructuringIncludeAI] = useState(false);
+  const [structuringProposals, setStructuringProposals] = useState<StructuringProposal[]>([]);
+  const [structuringEdits, setStructuringEdits] = useState<Record<string, string>>({});
+  const [structuringBusy, setStructuringBusy] = useState(false);
   const [handoverSender, setHandoverSender] = useState("");
   const [handoverReceiver, setHandoverReceiver] = useState("");
   const [handoverFindings, setHandoverFindings] = useState<HandoverFinding[]>([]);
@@ -378,6 +386,8 @@ export default function App() {
     if (!activeCase) {
       setResume(null);
       setResumeError("");
+      setStructuringProposals([]);
+      setStructuringEdits({});
       return;
     }
     const ctl = new AbortController();
@@ -414,6 +424,26 @@ export default function App() {
       })
       .finally(() => {
         if (!ctl.signal.aborted) setResumeLoading(false);
+      });
+    return () => ctl.abort();
+  }, [activeCase?.id, activeCase?.version]);
+  useEffect(() => {
+    if (!activeCase) return;
+    const ctl = new AbortController();
+    api<{ case_id: string; case_version: number; proposals: StructuringProposal[] }>(
+      `/cases/${encodeURIComponent(activeCase.id)}/structuring-proposals`,
+      { signal: ctl.signal },
+    )
+      .then((result) => {
+        if (ctl.signal.aborted) return;
+        setStructuringProposals(result.proposals);
+        setStructuringEdits((previous) => {
+          const pending = new Set(result.proposals.map((proposal) => proposal.id));
+          return Object.fromEntries(Object.entries(previous).filter(([id]) => pending.has(id)));
+        });
+      })
+      .catch((error) => {
+        if (!ctl.signal.aborted) setActionError(message(error));
       });
     return () => ctl.abort();
   }, [activeCase?.id, activeCase?.version]);
@@ -472,6 +502,87 @@ export default function App() {
       updated,
       ...previous.filter((item) => item.id !== updated.id),
     ]);
+  }
+  function proposalText(proposal: StructuringProposal) {
+    return structuringEdits[proposal.id] ??
+      proposal.suggested_observation ??
+      proposal.suggested_open_item_title ??
+      proposal.suggested_reason ??
+      proposal.source_text;
+  }
+  function proposalLabel(kind: StructuringProposal["kind"]) {
+    return kind === "observation" ? "관찰 제안" : kind === "open_item" ? "Open Item 제안" : "가설 판단 제안";
+  }
+  async function createStructuringProposals() {
+    if (!activeCase || !structuringNote.trim() || !structuringAuthor.trim() || structuringBusy) return;
+    setStructuringBusy(true);
+    setActionError("");
+    try {
+      const result = await post<{ case_id: string; case_version: number; proposals: StructuringProposal[] }>(
+        `/cases/${encodeURIComponent(activeCase.id)}/structuring-proposals`,
+        {
+          expected_version: activeCase.version,
+          note: structuringNote.trim(),
+          author: structuringAuthor.trim(),
+          provenance: "synthetic_demo",
+          include_llm: structuringIncludeAI,
+        },
+      );
+      setStructuringProposals(result.proposals);
+      setStructuringEdits({});
+      setStructuringNote("");
+      setNotice(`AI 제안 ${result.proposals.length}건을 만들었습니다. Case 상태에는 아직 반영되지 않았습니다.`);
+    } catch (error) {
+      setActionError(message(error));
+    } finally {
+      setStructuringBusy(false);
+    }
+  }
+  async function acceptStructuringProposal(proposal: StructuringProposal) {
+    if (!activeCase || structuringBusy || proposal.case_version !== activeCase.version) return;
+    setStructuringBusy(true);
+    setActionError("");
+    try {
+      const edited = structuringEdits[proposal.id]?.trim();
+      const updated = await post<InvestigationCase>(
+        `/cases/${encodeURIComponent(activeCase.id)}/structuring-proposals/${encodeURIComponent(proposal.id)}/accept`,
+        {
+          expected_version: activeCase.version,
+          accepted_by: structuringReviewer.trim() || shiftAssignee.trim() || "Shift B",
+          edited_text: edited || undefined,
+        },
+      );
+      replaceCase(updated);
+      setStructuringProposals((previous) => previous.filter((item) => item.id !== proposal.id));
+      setStructuringEdits((previous) => {
+        const next = { ...previous };
+        delete next[proposal.id];
+        return next;
+      });
+      void refreshShiftWorkspace();
+      setNotice(`${proposalLabel(proposal.kind)}을 검토 후 Case에 반영했습니다. 나머지 제안은 새 버전 확인이 필요합니다.`);
+    } catch (error) {
+      setActionError(message(error));
+    } finally {
+      setStructuringBusy(false);
+    }
+  }
+  async function dismissStructuringProposal(proposal: StructuringProposal) {
+    if (!activeCase || structuringBusy) return;
+    setStructuringBusy(true);
+    setActionError("");
+    try {
+      await post<{ proposal_id: string; status: string }>(
+        `/cases/${encodeURIComponent(activeCase.id)}/structuring-proposals/${encodeURIComponent(proposal.id)}/dismiss`,
+        { dismissed_by: structuringReviewer.trim() || shiftAssignee.trim() || "Shift B" },
+      );
+      setStructuringProposals((previous) => previous.filter((item) => item.id !== proposal.id));
+      setNotice("제안을 보류했습니다. Case 상태는 변경되지 않았습니다.");
+    } catch (error) {
+      setActionError(message(error));
+    } finally {
+      setStructuringBusy(false);
+    }
   }
   async function selectCase(nextCase: InvestigationCase) {
     if (caseBusy) return;
@@ -2325,6 +2436,108 @@ export default function App() {
                                   </div>
                                 )) : <p className="muted">현재 가설 후보가 없습니다.</p>}
                               </div>
+                            </div>
+                          </section>
+                          <section className="structuring-panel" aria-label="AI 메모 구조화 제안">
+                            <div className="section-heading">
+                              <div>
+                                <span className="eyebrow">REVIEWABLE AI SUGGESTION</span>
+                                <h3>교대 메모를 검토 가능한 제안으로 정리</h3>
+                                <p>AI 제안은 Case 상태와 분리되어 있습니다. 수정하거나 보류한 뒤, 수락한 항목만 저장됩니다.</p>
+                              </div>
+                              <Bot size={20} />
+                            </div>
+                            <form
+                              className="structuring-capture"
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                void createStructuringProposals();
+                              }}
+                            >
+                              <label>
+                                작성자
+                                <input
+                                  value={structuringAuthor}
+                                  onChange={(event) => setStructuringAuthor(event.target.value)}
+                                  placeholder="Shift A 담당자"
+                                  maxLength={120}
+                                />
+                              </label>
+                              <label>
+                                검토자
+                                <input
+                                  value={structuringReviewer}
+                                  onChange={(event) => setStructuringReviewer(event.target.value)}
+                                  placeholder="Shift B 담당자"
+                                  maxLength={120}
+                                />
+                              </label>
+                              <label className="structuring-note-field">
+                                교대 메모 원문
+                                <textarea
+                                  value={structuringNote}
+                                  onChange={(event) => setStructuringNote(event.target.value)}
+                                  placeholder="예: Tool은 육안상 이상 없음. Spindle vibration은 아직 확인하지 못해 다음 교대에서 확인 필요."
+                                  maxLength={4000}
+                                  rows={3}
+                                />
+                              </label>
+                              <div className="structuring-capture-actions">
+                                <label className="checkbox">
+                                  <input
+                                    type="checkbox"
+                                    checked={structuringIncludeAI}
+                                    onChange={(event) => setStructuringIncludeAI(event.target.checked)}
+                                  />
+                                  LLM 보조 사용 <span>(실패 시 결정론적 제안)</span>
+                                </label>
+                                <button className="button primary" disabled={!structuringNote.trim() || !structuringAuthor.trim() || structuringBusy}>
+                                  {structuringBusy ? <LoaderCircle className="spin" size={15} /> : <Bot size={15} />}
+                                  제안 생성
+                                </button>
+                              </div>
+                            </form>
+                            <div className="structuring-proposals" aria-live="polite">
+                              {!structuringProposals.length ? (
+                                <p className="muted">검토 대기 중인 제안이 없습니다. 메모를 입력하면 이곳에 표시됩니다.</p>
+                              ) : (
+                                structuringProposals.map((proposal) => {
+                                  const stale = proposal.case_version !== activeCase.version;
+                                  return (
+                                    <article className={`structuring-proposal ${stale ? "stale" : ""}`} key={proposal.id}>
+                                      <div className="structuring-proposal-heading">
+                                        <div>
+                                          <span className="badge teal">{proposalLabel(proposal.kind)}</span>
+                                          <strong>원문 기반 제안</strong>
+                                        </div>
+                                        <code>Case v{proposal.case_version} · 신뢰도 {Math.round(proposal.confidence * 100)}%</code>
+                                      </div>
+                                      <p className="structuring-source">“{proposal.source_text}”</p>
+                                      <label>
+                                        저장 전 수정
+                                        <textarea
+                                          value={proposalText(proposal)}
+                                          onChange={(event) => setStructuringEdits((previous) => ({ ...previous, [proposal.id]: event.target.value }))}
+                                          maxLength={4000}
+                                          rows={2}
+                                          disabled={structuringBusy}
+                                        />
+                                      </label>
+                                      {proposal.missing_evidence.length > 0 && (
+                                        <p className="structuring-missing"><TriangleAlert size={14} /> 미확인 근거: {proposal.missing_evidence.join(" · ")}</p>
+                                      )}
+                                      {stale && <p className="structuring-stale"><TriangleAlert size={14} /> Case가 변경되어 오래된 제안입니다. 새 버전에서 다시 생성해 주세요.</p>}
+                                      <div className="structuring-proposal-footer">
+                                        <small>{proposal.generator === "llm" ? "LLM 제안" : "규칙 기반 제안"} · {proposal.provenance}</small>
+                                        <div className="button-row">
+                                          <button className="button secondary compact" type="button" disabled={structuringBusy} onClick={() => void dismissStructuringProposal(proposal)}>보류</button>
+                                          <button className="button primary compact" type="button" disabled={structuringBusy || stale} onClick={() => void acceptStructuringProposal(proposal)}><Check size={14} /> 검토 후 저장</button>
+                                        </div>
+                                      </div>
+                                    </article>
+                                  );
+                                })
+                              )}
                             </div>
                           </section>
                           <div className="handover-forms">
