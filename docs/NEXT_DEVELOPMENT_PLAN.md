@@ -1,6 +1,6 @@
 # Continuum 다음 개발 계획
 
-> 기준 커밋: `f1d60c6` · 기준일: 2026-09-21
+> 기준선: P0~P1 반영 및 P2-1 Gateway provider 구현 완료 · 기준일: 2026-09-21 · 최신 상태는 이 문서의 진행 기록을 따른다.
 > 목적: 현재 구현된 Case 연속성 MVP를 실제 교대 업무를 검증할 수 있는 안전한 데모·확장 가능한 제품 기반으로 발전시킨다.
 
 ## 1. 현재 기준선
@@ -17,23 +17,25 @@ RCA Run R1
   → 같은 Case의 Analysis Run R2
 ```
 
-현재 확인된 기준선:
+현재 확인된 기준선(P0~P1 완료, 5.1 진행 기록 참고):
 
 - Backend 테스트 69개 통과
 - Frontend 테스트 14개 통과
-- Frontend build/typecheck 통과
+- Frontend build/typecheck 통과, Playwright 8개 통과
 - R1/R2 Analysis Run, Handover Snapshot, Resume 비교 화면 구현
 - `expected_version` 기반 충돌 제어 구현
 - 현재 설비 상태 관찰(`is_current_state`)과 Handover 예외 역할 검증 보완
+- actor context 계약과 인계 audit event(actor ID·role·Case version·snapshot ID) 구현, real-backend E2E로 인증 경계 검증
+- Shift Workspace(담당자·보기 필터 기준 Case 우선순위 조회)와 Open Item/Hypothesis 항목별 상태 저장 UI 구현
 
 아직 제품 완료로 볼 수 없는 항목:
 
-- actor header가 실제 사내 인증 사용자·역할과 연결되지 않음
+- actor header가 실제 사내 인증 공급자·조직 scope와 아직 연결되지 않음(현재는 trusted header 기반)
 - CI workflow와 운영 배포 검증이 아직 없음
-- Shift 전체를 한 번에 보는 Workspace와 일반 Open Item 관리가 구현됨
-- Hypothesis 판단을 UI에서 직접 기록하는 흐름이 구현됨
-- LLM Context Structuring, AI Handover Draft는 아직 authoritative 기능으로 구현하지 않음
-- 실제 DynamoDB 운영 크기·CI·배포 검증이 남아 있음
+- LLM Context Structuring, AI Handover Draft는 아직 authoritative 기능으로 구현하지 않음(P2 진행)
+- Case Memory/RAG(P3)는 아직 설계 문서만 있음
+- 실제 DynamoDB 운영 크기·CI·배포 검증이 남아 있음(P4)
+- Case Workspace 화면의 정보 우선순위 재배치는 [UX 개편안](CONTINUUM_UX_REDESIGN_PROPOSAL.md)으로 제안된 상태이며 팀 논의 후 확정 전까지 미구현
 
 ## 2. 우선순위 원칙
 

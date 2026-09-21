@@ -1,6 +1,7 @@
 # Continuum 개발 전환 계획
 
 > 상태: F0~F4 핵심 MVP 구현 및 회귀 검증 완료 · F5 운영 환경/배포 검증 진행 필요 · 갱신일: 2026-09-21
+> **후속 진행 상황:** F5 이후 실제 진행 중인 단계(P0 Actor Context, P1 Shift Workspace 등)와 최신 완료 기준·진행 기록은 이 문서 대신 [다음 개발 계획](NEXT_DEVELOPMENT_PLAN.md)을 확인합니다. 이 문서는 F0~F4 전환 배경과 설계 근거를 보존하기 위해 유지합니다.
 > 트러블슈팅 및 후속 순서: [CONTINUUM_TROUBLESHOOTING.md](CONTINUUM_TROUBLESHOOTING.md)
 > 기준: [Continuum 최종 기획](Continuum_Final_Plan.md), [제품 범위](PRODUCT.md), [아키텍처](ARCHITECTURE.md), [데이터 계약](DATA_CONTRACT.md), [평가 계획](EVALUATION.md), [ADR-0004](decisions/ADR-0004-continuum-case-continuity.md)
 

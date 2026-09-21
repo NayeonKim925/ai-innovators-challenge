@@ -11,6 +11,14 @@
 - Evidence 확인 업무
 - Hypothesis
 - Handover
+
+추가로 UX 변경이 다음 계약을 깨뜨리지 않는지 Backend/API 회귀 검증에 포함한다.
+
+- `expected_version` 충돌 방지와 stale accept 거절
+- `X-Actor-Id`/`X-Actor-Role` 및 Handover audit 기록
+- Handover publish/accept/change-request 상태 전이
+- `(run_id, evidence_id)` 기준의 Run-scoped Evidence 조회
+- AI 제안은 accept 전까지 Case aggregate와 Handover Packet을 변경하지 않는 경계
 - Snapshot
 - Resume / Handover Delta
 - 동일 Case의 추가 분석(R2)
@@ -532,4 +540,6 @@ Handover
 "다음 교대에게 무엇을 넘겨야 하지?"
 ```
 
-이 구조에 팀이 동의한 이후 화면 개편을 확정하고, 그 다음 Golden Case 및 Bedrock 연동 작업으로 진행한다.
+이 문서는 UX 논의를 위한 제안이며, 현재 화면의 동작을 변경하지 않는다. 팀이 구조를 확정하면 Case Workspace의 정보 우선순위 개편을 작은 UI 단위로 구현한다.
+
+P2-1의 OpenAI-compatible 대회 Gateway 연결 경로는 이미 구현되어 있다. 다음 구현 단계는 그 경로를 사용한 Proposal-only Context Structuring과 Case Q&A이며, API 키·모델 허용 목록의 외부 검증이 끝나기 전에도 결정론적 폴백과 AI 권한 경계를 유지한다. LLM은 Case/Handover 상태를 직접 변경하거나 원인을 확정하지 않는다.
