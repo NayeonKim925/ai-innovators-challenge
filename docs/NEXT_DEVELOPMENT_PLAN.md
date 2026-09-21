@@ -151,7 +151,7 @@ RCA Run R1
 
 - OpenAI-compatible Gateway 호출 경로를 기존 direct Bedrock 경로와 분리했다.
 - 기본 provider는 `direct_bedrock`으로 유지하고, 대회 검증 시 `LLM_PROVIDER=competition_gateway`로 전환한다.
-- 사용자에게 노출되는 내러티브/인계 답변은 기본 `bedrock-gpt-5.5`, 대량 메모 구조화는 `bedrock-haiku`로 분리할 수 있다.
+- 사용자에게 노출되는 내러티브/인계 답변은 기본 `bedrock-gpt-5.6-terra`, 대량 메모 구조화는 `bedrock-haiku`로 분리할 수 있다.
 - 현재 내러티브 경로에서 Gateway의 Chat Completions 응답, 근거 ID 검증, 토큰 usage 추출을 지원한다.
 - `openai` SDK는 `.[llm]` 선택 의존성 및 Lambda 이미지에 반영했다.
 - 검증: backend 전체 71 passed, Gateway 응답 shape/health 설정 테스트 포함.

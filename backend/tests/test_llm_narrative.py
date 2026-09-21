@@ -201,5 +201,5 @@ def test_gateway_model_defaults_split_by_task(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.delenv("LLM_MODEL", raising=False)
     monkeypatch.delenv("LLM_STRUCTURING_MODEL", raising=False)
 
-    assert llm_model_id() == "bedrock-gpt-5.5"
+    assert llm_model_id() == "bedrock-gpt-5.6-terra"
     assert llm_model_id("structuring") == "bedrock-haiku"

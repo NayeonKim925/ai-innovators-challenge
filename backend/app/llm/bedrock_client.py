@@ -100,7 +100,7 @@ def llm_model_id(task: str = "narrative") -> str:
     if llm_provider() == "competition_gateway":
         if task == "structuring":
             return os.getenv("LLM_STRUCTURING_MODEL", "bedrock-haiku")
-        return os.getenv("LLM_MODEL", "bedrock-gpt-5.5")
+        return os.getenv("LLM_MODEL", "bedrock-gpt-5.6-terra")
     return bedrock_model_id()
 
 
