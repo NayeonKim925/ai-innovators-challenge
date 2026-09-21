@@ -251,6 +251,11 @@ test("proxies the case-orchestration API contract", async () => {
             { method: "GET", path: "/api/shift-workspace?assignee=Shift%20B&status=action_required" },
             { method: "GET", path: "/api/cases/case-1" },
             { method: "POST", path: "/api/incidents/1/cases" },
+            { method: "POST", path: "/api/cases/case-1/structuring-proposals" },
+            {
+              method: "POST",
+              path: "/api/cases/case-1/structuring-proposals/proposal-1/accept",
+            },
             {
               method: "POST",
               path: "/api/cases/case-1/tasks/task-1/responses",

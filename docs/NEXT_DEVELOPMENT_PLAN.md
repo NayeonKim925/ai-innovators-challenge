@@ -213,7 +213,7 @@ P3 권한 필터가 있는 Case Memory/RAG
 P4 DynamoDB·인증·운영 배포
 ```
 
-다음 작업은 P1 후속으로, 실제 현장 메모를 상태 제안으로 바꾸는 P2 Proposal-only AI 보조를 설계한다. P2에서도 LLM 제안은 accept 전까지 Case aggregate와 Handover Packet을 변경하지 않는다.
+다음 작업은 P2 후속으로, 실제 현장 메모를 상태 제안으로 바꾸는 Proposal-only AI 보조를 확장한다. P2에서도 LLM 제안은 accept 전까지 Case aggregate와 Handover Packet을 변경하지 않는다.
 
 ## 5.1 진행 기록
 
@@ -243,6 +243,15 @@ P4 DynamoDB·인증·운영 배포
 - 기존 Case version/CAS 계약을 유지한 채 Open Item의 배정·보류·완료와 Hypothesis 판단을 항목별 UI에서 저장하도록 연결했다.
 - React proxy allowlist와 real-backend E2E를 확장해 새 Workspace 조회가 실제 API 경계를 통과하는지 검증했다.
 - 검증: backend 69 passed, frontend 14 passed, frontend build/typecheck passed, Playwright 8 passed, 변경 파일 대상 Ruff passed.
+
+### 2026-09-21 — P2 Unit 1: Proposal-only Context Structuring Contract
+
+- `POST /api/cases/{case_id}/structuring-proposals`가 작업자 메모를 Observation/Open Item 제안으로 구조화한다.
+- 제안에는 원문 span, Case version, confidence, missing evidence, provenance를 포함하며 생성만으로 Case aggregate를 변경하지 않는다.
+- `POST /api/cases/{case_id}/structuring-proposals/{proposal_id}/accept`만 기존 결정론적 Case mutation을 호출하고, stale version은 409로 거절한다.
+- 대회 Gateway가 설정된 경우에만 구조화 LLM을 선택적으로 호출하며, JSON 검증·guardrail·SDK/키 오류 시 결정론적 제안으로 폴백한다. LLM은 새 Hypothesis를 만들 수 없고 기존 Hypothesis ID만 참조한다.
+- React proxy allowlist와 API 회귀 테스트를 추가했다. UI에 저장된 상태와 AI 제안 화면을 분리하는 작업은 다음 P2 Unit에서 진행한다.
+- 검증: backend 75 passed, frontend 14 passed, frontend build/typecheck passed, Ruff passed.
 
 ## 5. 첫 PR의 체크리스트
 

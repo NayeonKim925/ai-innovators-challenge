@@ -35,6 +35,9 @@ from .domain import (
     ReviewDecision,
     ShiftWorkspaceFilter,
     StoredReview,
+    StructuringProposalAcceptRequest,
+    StructuringProposalRequest,
+    StructuringProposalResponse,
 )
 from .llm.bedrock_client import llm_is_configured, llm_model_id, llm_provider, llm_timeout_s
 from .repositories.cases import (
@@ -69,6 +72,10 @@ from .services.cases import (
     review_case,
     update_open_item,
 )
+from .services.context_structuring import (
+    accept_structuring_proposal,
+    build_structuring_proposals,
+)
 from .services.investigations import answer_question, run_investigation
 from .services.narrative_jobs import (
     NarrativeQueueUnavailable,
@@ -92,6 +99,9 @@ def create_app(
     app.state.repository = repository or JsonRuntimeRepository()
     app.state.investigations = investigations or build_investigation_repository()
     app.state.cases = cases or build_case_repository()
+    # Proposal records are intentionally non-authoritative and short-lived in
+    # the MVP. Accepted proposals are removed after passing through Case CAS.
+    app.state.structuring_proposals = {}
 
     def resolve_actor_context(
         actor_id: str | None,
@@ -308,6 +318,71 @@ def create_app(
             return get_case(case_id, app.state.cases).model_dump(mode="json")
         except CaseNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Case not found") from exc
+
+    @app.post("/api/cases/{case_id}/structuring-proposals")
+    def create_structuring_proposals(
+        case_id: str,
+        body: StructuringProposalRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        """Return reviewable note interpretations without changing the Case."""
+
+        require_api_token(authorization)
+        try:
+            case = get_case(case_id, app.state.cases)
+        except CaseNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Case not found") from exc
+        if case.version != body.expected_version:
+            raise HTTPException(status_code=409, detail="Case changed. Refresh and retry.")
+        proposals = build_structuring_proposals(
+            case=case,
+            note=body.note,
+            author=body.author,
+            observed_at=body.observed_at,
+            scope=body.scope,
+            source_location=body.source_location,
+            provenance=body.provenance,
+            include_llm=body.include_llm,
+        )
+        for proposal in proposals:
+            app.state.structuring_proposals[proposal.id] = proposal
+        return StructuringProposalResponse(
+            case_id=case.id,
+            case_version=case.version,
+            proposals=proposals,
+        ).model_dump(mode="json")
+
+    @app.post("/api/cases/{case_id}/structuring-proposals/{proposal_id}/accept")
+    def accept_case_structuring_proposal(
+        case_id: str,
+        proposal_id: str,
+        body: StructuringProposalAcceptRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        """Apply exactly one explicitly reviewed proposal to Case state."""
+
+        require_api_token(authorization)
+        proposal = app.state.structuring_proposals.get(proposal_id)
+        if proposal is None or proposal.case_id != case_id:
+            raise HTTPException(status_code=404, detail="Structuring proposal not found")
+        try:
+            case = get_case(case_id, app.state.cases)
+            if case.version != body.expected_version or proposal.case_version != case.version:
+                raise CaseConflictError(case_id)
+            updated = accept_structuring_proposal(
+                proposal=proposal,
+                request=body,
+                investigations=app.state.investigations,
+                cases=app.state.cases,
+            )
+        except CaseNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Case not found") from exc
+        except CaseConflictError as exc:
+            raise HTTPException(status_code=409, detail="Case changed. Refresh and retry.") from exc
+        except CaseTransitionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        del app.state.structuring_proposals[proposal_id]
+        return updated.model_dump(mode="json")
 
     @app.post("/api/cases/{case_id}/observations")
     def record_observation(
