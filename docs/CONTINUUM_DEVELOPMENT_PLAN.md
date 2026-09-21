@@ -1,12 +1,21 @@
 # Continuum 개발 전환 계획
 
-> 상태: F0~F4 구현됨 · F5 환경/선택 의존성/배포 검증 진행 필요 · 작성일: 2026-09-19
+> 상태: F0~F4 핵심 MVP 구현 및 회귀 검증 완료 · F5 운영 환경/배포 검증 진행 필요 · 갱신일: 2026-09-21
 > 트러블슈팅 및 후속 순서: [CONTINUUM_TROUBLESHOOTING.md](CONTINUUM_TROUBLESHOOTING.md)
 > 기준: [Continuum 최종 기획](Continuum_Final_Plan.md), [제품 범위](PRODUCT.md), [아키텍처](ARCHITECTURE.md), [데이터 계약](DATA_CONTRACT.md), [평가 계획](EVALUATION.md), [ADR-0004](decisions/ADR-0004-continuum-case-continuity.md)
 
 ## 1. 전환 목표와 고정 경계
 
 Continuum은 미완료 제조 이상 조사에서 다음 교대가 **같은 Case**의 분석 근거, 사람의 확인, 미확인 항목, 담당자와 인계 이력을 이어 보게 하는 워크스페이스다. 기존의 결정론적 후보 분석은 유지하고, 단일 분석 결과를 근거 확인 후 종료하는 현재 Case Orchestrator를 여러 분석 Run과 인계 상태를 보존하는 Case로 확장한다.
+
+### 현재 구현 스냅샷
+
+- Case v2 aggregate, 다중 Analysis Run, Operator Observation, Open Item, Hypothesis, Handover Snapshot을 구현했다.
+- Handover는 `lint → publish → accept/change request` 흐름을 가지며, 인수 수락은 조사 종료와 분리된다.
+- 현재 설비 상태를 확인한 관찰은 `is_current_state`를 명시해야 하며, 일반 메모만으로 상태 누락을 통과시키지 않는다.
+- blocking finding을 사유만으로 우회할 수 없도록 예외 발행은 `shift_lead`, `supervisor`, `maintenance_lead`, `admin` 역할의 actor header를 요구하고 승인 정보를 기록한다.
+- Resume API의 `handover_delta`를 Case 화면에 표시하고, change request는 다음 조치(`next_action`)를 갱신한다.
+- backend 65개 테스트, frontend build/typecheck를 통과했다. 런타임 인증 공급자·실제 DynamoDB·CI 업로드는 아직 별도 검증 대상이다.
 
 다음은 구현 중에도 변경하지 않는다.
 
@@ -114,11 +123,11 @@ POST /api/cases/{case_id}/reviews
 
 ### F2 — 인계 검사·Packet·수락 (P0-2)
 
-- 순수 결정론 `handover_linter.py`를 도입한다: 참조 존재, 담당자, 필수 현재 상태, Open Item 전달, summary 상태 모순, snapshot freshness를 검사한다.
+- 순수 결정론 `handover_linter.py`를 도입한다: 참조 존재, 담당자, 명시적으로 현재 상태인 관찰, Open Item 전달, summary 상태 모순, snapshot freshness를 검사한다.
 - Snapshot builder는 필수 필드를 템플릿으로 생성하고 snapshot hash/version을 고정한다. LLM 요약은 Snapshot payload를 대체하지 않는다.
 - publish, change request, accept와 exception audit event를 서비스/API에 구현한다.
 
-**완료:** 미확인 항목은 Packet에 남고, 담당자 누락은 publish를 막으며, 발행 뒤 Case가 바뀌면 이전 Packet accept가 409/`superseded`가 된다.
+**완료:** 미확인 항목은 Packet에 남고, 담당자·현재 상태 누락은 publish를 막으며, 발행 뒤 Case가 바뀌면 이전 Packet accept가 409/`superseded`가 된다. 관리자 예외는 인증된 lead/supervisor actor만 가능하다.
 
 ### F3 — Continuum 운영 UI (P0-3)
 
@@ -127,7 +136,7 @@ POST /api/cases/{case_id}/reviews
 - 관찰 원문 작성, Open Item 배정·보류, Packet 검토/발행/수락/설명 요청, 409 refresh-and-retry UI를 제공한다.
 - 후보·근거 보드는 Run 선택을 지원하며 “후보/근거 확인/원인 확정/수리 완료” 표기를 혼동하지 않게 한다.
 
-**완료:** Shift A 기록 → linter 보완 → Packet 발행 → Shift B Resume/수락 → 같은 Case R2 추가 흐름을 브라우저 E2E로 재현한다.
+**완료:** Shift A 기록 → 현재 상태 표시 → 담당자 지정 → linter → Packet 발행 → Shift B 수락의 브라우저 mock E2E 경로를 추가했다. 실제 백엔드 연결 E2E와 R2 재분석은 F5 검증 항목으로 남긴다.
 
 ### F4 — 제한적 AI 보조와 Case Q&A (P0-4)
 

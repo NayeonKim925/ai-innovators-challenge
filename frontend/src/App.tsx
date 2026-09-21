@@ -34,6 +34,7 @@ import {
 } from "./api";
 import type {
   ChatResponse,
+  CaseResume,
   Dataset,
   Health,
   Incident,
@@ -226,6 +227,7 @@ export default function App() {
   const [caseChatIncludeAI, setCaseChatIncludeAI] = useState(false);
   const [cases, setCases] = useState<InvestigationCase[]>([]);
   const [activeCase, setActiveCase] = useState<InvestigationCase | null>(null);
+  const [caseResume, setCaseResume] = useState<CaseResume | null>(null);
   const [casesAvailable, setCasesAvailable] = useState(true);
   const [caseBusy, setCaseBusy] = useState(false);
   const [taskOutcome, setTaskOutcome] = useState<ExpertResponseOutcome>("confirmed");
@@ -235,6 +237,7 @@ export default function App() {
   const [caseComment, setCaseComment] = useState("");
   const [observationText, setObservationText] = useState("");
   const [observationAuthor, setObservationAuthor] = useState("");
+  const [observationIsCurrentState, setObservationIsCurrentState] = useState(false);
   const [openItemAssignee, setOpenItemAssignee] = useState("");
   const [handoverSender, setHandoverSender] = useState("");
   const [handoverReceiver, setHandoverReceiver] = useState("");
@@ -369,6 +372,9 @@ export default function App() {
   }
   function replaceCase(updated: InvestigationCase) {
     setActiveCase(updated);
+    void api<CaseResume>(`/cases/${encodeURIComponent(updated.id)}/resume`)
+      .then(setCaseResume)
+      .catch(() => {});
     setCases((previous) => [
       updated,
       ...previous.filter((item) => item.id !== updated.id),
@@ -379,10 +385,14 @@ export default function App() {
     setCaseBusy(true);
     setActionError("");
     try {
-      const investigation = await api<Investigation>(
-        `/investigations/${encodeURIComponent(nextCase.investigation_id)}`,
-      );
+      const [investigation, resume] = await Promise.all([
+        api<Investigation>(
+          `/investigations/${encodeURIComponent(nextCase.investigation_id)}`,
+        ),
+        api<CaseResume>(`/cases/${encodeURIComponent(nextCase.id)}/resume`),
+      ]);
       setActiveCase(nextCase);
+      setCaseResume(resume);
       setCaseChat([]);
       setRun(investigation);
       setEvidenceId(investigation.evidence[0]?.id || "");
@@ -478,10 +488,12 @@ export default function App() {
           original_text: observationText.trim(),
           author: observationAuthor.trim(),
           provenance: "synthetic_demo",
+          is_current_state: observationIsCurrentState,
         },
       );
       replaceCase(updated);
       setObservationText("");
+      setObservationIsCurrentState(false);
       setNotice("관찰 원문이 기록되었습니다. 센서값과 분리된 교대 기록입니다.");
     } catch (e) {
       setActionError(message(e));
@@ -1695,6 +1707,24 @@ export default function App() {
                               <p>{activeCase.open_items.filter((item) => item.status !== "resolved").length}개 · 인계 대상</p>
                             </div>
                           </div>
+                          <div className="disclosure resume-delta" aria-label="교대 후 변경점">
+                            <strong>교대 후 변경점</strong>
+                            {caseResume?.handover_delta.length ? (
+                              <ul>
+                                {caseResume.handover_delta.map((delta, index) => (
+                                  <li key={`${delta.kind}-${delta.entity || "case"}-${delta.id || index}`}>
+                                    <span className="badge neutral">{delta.kind}</span>{" "}
+                                    {delta.entity || "Case"}{delta.id ? ` · ${delta.id}` : ""}
+                                    {delta.from_version !== undefined && delta.to_version !== undefined
+                                      ? ` · v${delta.from_version} → v${delta.to_version}`
+                                      : ""}
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <p className="muted">최근 인계 Snapshot 이후 새로 기록된 변경이 없습니다.</p>
+                            )}
+                          </div>
                           <div className="handover-forms">
                             <form
                               className="review-form"
@@ -1722,6 +1752,14 @@ export default function App() {
                                   maxLength={4000}
                                   rows={3}
                                 />
+                              </label>
+                              <label className="checkbox">
+                                <input
+                                  type="checkbox"
+                                  checked={observationIsCurrentState}
+                                  onChange={(event) => setObservationIsCurrentState(event.target.checked)}
+                                />
+                                현재 설비 상태를 함께 확인한 기록입니다
                               </label>
                               <button className="button secondary" disabled={!observationText.trim() || !observationAuthor.trim() || handoverBusy}>
                                 {handoverBusy ? <LoaderCircle className="spin" size={15} /> : <ListChecks size={15} />}

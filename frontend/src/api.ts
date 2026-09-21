@@ -107,6 +107,7 @@ export interface OperatorObservation {
   source_location: string;
   provenance: "actual" | "synthetic_demo" | "simulated";
   approved: boolean;
+  is_current_state: boolean;
 }
 export interface OpenItem {
   id: string;
@@ -163,12 +164,42 @@ export interface Handover {
   snapshot_id: string;
   status: HandoverStatus;
   exception_reason: string;
+  exception_approved_by: string | null;
+  exception_approved_role: string | null;
   change_request: string;
   created_at: string;
   published_at: string;
   accepted_at: string | null;
   accepted_by: string | null;
   change_requested_at: string | null;
+}
+export interface ResumeDelta {
+  kind: string;
+  entity?: string;
+  id?: string;
+  from_version?: number;
+  to_version?: number;
+}
+export interface CaseResume {
+  case_id: string;
+  case_version: number;
+  status: CaseStatus;
+  next_action: string;
+  current_run: AnalysisRun | null;
+  observations: Array<{
+    id: string;
+    text: string;
+    author: string;
+    recorded_at: string;
+    provenance: string;
+    is_current_state: boolean;
+  }>;
+  open_items: OpenItem[];
+  hypotheses: HypothesisTrack[];
+  current_handover: Handover | null;
+  current_snapshot: HandoverSnapshot | null;
+  handover_delta: ResumeDelta[];
+  constraints: string[];
 }
 export type ExpertResponseOutcome = "confirmed" | "refuted" | "unavailable";
 export interface ExpertTaskResponse {

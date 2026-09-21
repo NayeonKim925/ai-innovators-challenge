@@ -290,6 +290,7 @@ def create_app(
                 scope=body.scope,
                 source_location=body.source_location,
                 provenance=body.provenance,
+                is_current_state=body.is_current_state,
                 expected_version=body.expected_version,
                 cases=app.state.cases,
             )
@@ -480,6 +481,8 @@ def create_app(
         case_id: str,
         body: HandoverPublishRequest,
         authorization: str | None = Header(default=None),
+        actor_id: str | None = Header(default=None, alias="X-Actor-Id"),
+        actor_role: str | None = Header(default=None, alias="X-Actor-Role"),
     ) -> dict[str, object]:
         require_api_token(authorization)
         try:
@@ -488,6 +491,8 @@ def create_app(
                 sender=body.sender,
                 receiver=body.receiver,
                 exception_reason=body.exception_reason,
+                actor_id=actor_id,
+                actor_role=actor_role or "operator",
                 expected_version=body.expected_version,
                 investigations=app.state.investigations,
                 cases=app.state.cases,
@@ -504,6 +509,8 @@ def create_app(
                     "findings": [item.model_dump(mode="json") for item in exc.findings],
                 },
             ) from exc
+        except CaseTransitionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
         return case.model_dump(mode="json")
 
     @app.post("/api/cases/{case_id}/handovers/{handover_id}/acceptance")

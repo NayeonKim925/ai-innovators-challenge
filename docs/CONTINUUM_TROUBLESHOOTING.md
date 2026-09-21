@@ -1,7 +1,7 @@
 # Continuum 구현 검토·트러블슈팅·후속 계획
 
-> 기준일: 2026-09-19
-> 범위: F0~F4 변경과 현재 로컬 검증 결과
+> 기준일: 2026-09-21
+> 범위: F0~F4 변경, 인계 보안·Resume 보완 및 현재 로컬 검증 결과
 
 ## 1. 이번 검토에서 확인한 즉시 오류
 
@@ -42,11 +42,11 @@
 
 ## 3. 리뷰에서 남은 P1 리스크
 
-1. **actor 인증**: `author`, `sender`, `accepted_by`, `reviewer`, `created_by`가 bearer token의 실제 사용자·역할과 연결되지 않는다. `exception_reason`으로 누구나 linter blocking을 우회할 수 있다.
+1. **actor 인증**: `author`, `sender`, `accepted_by`, `reviewer`, `created_by`가 bearer token의 실제 사용자·역할과 연결되지 않는다. 현재는 예외 발행에만 lead/supervisor 역할 header 경계를 적용했으며, 실제 인증 middleware 연동은 남아 있다.
 2. **legacy write version 정책**: 기존 task response/review의 `expected_version`은 하위 호환을 위해 optional이다. Continuum 전용 mutation은 필수로 유지하고, legacy endpoint 완화 정책을 별도 ADR로 정해야 한다.
 3. **AnalysisRun 고아 저장**: 새 Run의 InvestigationResult를 먼저 저장한 뒤 Case CAS가 실패하면 연결되지 않은 결과가 남을 수 있다. repository transaction 또는 보상 삭제/idempotency가 필요하다.
 4. **lint 실행 이력**: 현재 일반 `handover-checks`는 결과만 반환하고 CaseEvent를 저장하지 않는다. 도구 호출 이력 완결성을 위해 lint 실행 event 또는 immutable lint result를 저장해야 한다.
-5. **Snapshot/Resume 역사성**: Snapshot payload는 고정했지만 Resume 기본 응답은 현재 aggregate도 함께 읽는다. 수신자가 발행 당시 상태와 현재 변경을 구분하는 Delta 응답이 필요하다.
+5. **Snapshot/Resume 역사성**: Snapshot payload는 고정하고 Resume이 `handover_delta`를 반환·표시한다. 이후에는 변경 종류별 의미와 인수자가 확인해야 할 우선순위를 더 세분화할 수 있다.
 6. **DynamoDB aggregate 크기**: Case 전체 JSON에 Run·Observation·Open Item·Snapshot을 계속 누적하면 400KB 제한과 쓰기 충돌 위험이 있다. Event/Snapshot 분리와 GSI를 계측 후 결정해야 한다.
 
 ## 4. 이어서 개발할 순서
@@ -108,13 +108,21 @@ Playwright에서 다음 한 경로를 고정한다.
 3. AWS 실검증 전에는 README·발표 문서에 운영 완료라고 쓰지 않는다.
 4. Time-to-Context, Open Item 누락률, citation/state accuracy를 causRCA Hit@k와 별도 지표로 기록한다.
 
-## 5. 후속 실행 기록 · 2026-09-19
+## 5. 후속 실행 기록 · 2026-09-21
 
 - T0: Python 3.12 전용 `.venv312`에서 backend 의존성과 Metal Etch 선택 의존성을 설치했다. `tsc --noEmit`은 통과했고 Vite `dist/index.html` 및 hashed asset 생성도 확인했다.
 - T1: `test_metal_etch_pca.py` 5개, API 10개, Case 14개, workflow 5개를 Python 3.12 환경에서 통과시켰다.
 - T2: `idempotency_key`, CAS 실패 보상 삭제, Evidence 참조 검증, production trusted actor header 요구를 추가했다.
 - T3: handover lint 실행 Event, Snapshot canonical payload, Resume `handover_delta`를 추가했다.
 - T4: legacy Dynamo JSON projection, stale write 충돌 테스트, idempotency 재시도 테스트를 추가했다.
-- T5: runtime fixture에 의존하지 않는 `frontend/e2e/continuum-smoke.spec.ts`를 추가했다. Playwright 실행은 브라우저 다운로드가 완료되지 않고 시스템 Chrome 실행도 현재 환경에서 `node`/프로세스 문제로 종료되어 통과를 주장하지 않는다.
+- T5: runtime fixture에 의존하지 않는 `frontend/e2e/continuum-smoke.spec.ts`를 추가했다. 현재는 로컬 프론트 서버를 대상으로 2개 smoke 시나리오가 통과하며, 실제 backend 연결 E2E는 별도 환경 검증으로 남긴다.
 
 - T6: release-path CI 구성을 준비했지만, 현재 GitHub OAuth 토큰에 `workflow` scope가 없어 `.github/workflows/ci.yml` 업로드가 거부됐다. CI workflow는 로컬 커밋에서 제외했으며, `workflow` 권한이 있는 인증으로 별도 업로드해야 한다.
+
+### 이번 정리에서 반영한 보완
+
+- Handover 예외 발행 시 인증된 actor ID와 허용 역할을 확인하고, 승인자와 역할을 Handover에 보존한다.
+- 일반 관찰과 현재 설비 상태를 구분하는 `is_current_state` 필드를 추가했다. Linter는 승인 여부와 현재 상태 표시를 모두 확인한다.
+- Handover change request가 Case의 다음 조치를 갱신하도록 보완했다.
+- Resume의 `handover_delta`를 실제 Case 화면에 표시하고, Shift A 기록부터 Shift B 인수까지의 mock 브라우저 E2E를 추가했다.
+- 검증: backend `65 passed`, frontend `npm run build`, `npm run typecheck` 통과. 전체 ruff의 기존 legacy 오류와 실제 backend 연결 Playwright 환경은 별도 release gate로 남긴다.

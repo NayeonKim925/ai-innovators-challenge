@@ -430,6 +430,7 @@ def append_operator_observation(
     scope: str,
     source_location: str,
     provenance: str,
+    is_current_state: bool,
     expected_version: int,
     cases: CaseRepository,
 ) -> InvestigationCase:
@@ -447,6 +448,7 @@ def append_operator_observation(
         source_location=source_location,
         provenance=provenance,
         approved=True,
+        is_current_state=is_current_state,
     )
     updated = case.model_copy(
         update={
@@ -792,6 +794,8 @@ def publish_handover(
     sender: str,
     receiver: str,
     exception_reason: str,
+    actor_id: str | None,
+    actor_role: str,
     expected_version: int,
     investigations: InvestigationRepository,
     cases: CaseRepository,
@@ -800,8 +804,16 @@ def publish_handover(
     if case.version != expected_version:
         raise CaseConflictError(case_id)
     findings = lint_case(case, investigations)
-    if has_blocking_findings(findings) and not exception_reason.strip():
-        raise HandoverLintError(findings)
+    if exception_reason.strip() and (
+        not actor_id
+        or actor_role not in {"shift_lead", "supervisor", "maintenance_lead", "admin"}
+    ):
+        raise CaseTransitionError(
+            "A handover exception requires an authenticated lead or supervisor actor."
+        )
+    if has_blocking_findings(findings):
+        if not exception_reason.strip():
+            raise HandoverLintError(findings)
     snapshot = _build_handover_snapshot(case, findings)
     published_at = _now()
     handover = Handover(
@@ -814,6 +826,8 @@ def publish_handover(
         exception_reason=exception_reason,
         created_at=published_at,
         published_at=published_at,
+        exception_approved_by=actor_id if exception_reason.strip() else None,
+        exception_approved_role=actor_role if exception_reason.strip() else None,
     )
     updated = case.model_copy(
         update={
@@ -839,7 +853,10 @@ def publish_handover(
         updated = _append_event(
             updated,
             event_type="handover_linted",
-            detail=f"Published with an explicit exception: {exception_reason}",
+            detail=(
+                f"Published with an explicit exception by {actor_id} ({actor_role}): "
+                f"{exception_reason}"
+            ),
             actor="operator",
         )
     return _persist_updated_case(current=case, updated=updated, cases=cases)
@@ -938,6 +955,9 @@ def request_handover_changes(
     updated = case.model_copy(
         update={
             "handovers": [changed if item.id == handover_id else item for item in case.handovers],
+            "next_action": (
+                "The sender must clarify the handover gaps before publishing a new Packet."
+            ),
             "updated_at": changed_at,
         }
     )
@@ -1018,6 +1038,7 @@ def build_resume(case_id: str, cases: CaseRepository) -> dict[str, object]:
                 "author": item.author,
                 "recorded_at": item.recorded_at,
                 "provenance": item.provenance.value,
+                "is_current_state": item.is_current_state,
             }
             for item in case.observations
         ],

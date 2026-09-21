@@ -18,7 +18,7 @@
 - Metal Etch 이식성 어댑터: 다음 단계
 - 전문가 검토 저장: 구현 완료
 - 사건 인박스와 증거 확인·최종 검토 게이트: 기존 흐름 구현 완료(로컬 in-memory, AWS용 DynamoDB 저장소 구현)
-- Continuum Case 연속성: 다중 분석 Run·교대 인계·Resume·Case Q&A를 구현 중이며 [전환 계획](docs/CONTINUUM_DEVELOPMENT_PLAN.md)과 [트러블슈팅](docs/CONTINUUM_TROUBLESHOOTING.md)을 기준으로 한다
+- Continuum Case 연속성: 다중 분석 Run·교대 인계·Resume·Case Q&A의 핵심 MVP 흐름 구현 완료. [전환 계획](docs/CONTINUUM_DEVELOPMENT_PLAN.md)의 F5 운영 검증을 진행한다
 - 조사 UI: React/TypeScript UI를 Continuum release path로 사용하고, 기존 Streamlit은 비교·복구용으로 보존
 
 UI 의사결정 원본은 [DESIGN.md](DESIGN.md), 실행 및 프록시 보안 경계는 [프론트 가이드](frontend/README.md), 레퍼런스 선택 근거는 [디자인 리서치](.lazyweb/quick-references/investigation-2026-09-17/report.md)에 있습니다.

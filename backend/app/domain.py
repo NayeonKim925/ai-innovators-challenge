@@ -272,6 +272,7 @@ class OperatorObservationRequest(BaseModel):
     scope: str = Field(default="", max_length=500)
     source_location: str = Field(default="", max_length=500)
     provenance: ObservationProvenance = ObservationProvenance.SYNTHETIC_DEMO
+    is_current_state: bool = False
 
 
 class AnalysisRunRequest(BaseModel):
@@ -411,6 +412,7 @@ class OperatorObservation(BaseModel):
     source_location: str = Field(default="", max_length=500)
     provenance: ObservationProvenance
     approved: bool = False
+    is_current_state: bool = False
 
 
 class OpenItem(BaseModel):
@@ -488,6 +490,8 @@ class Handover(BaseModel):
     snapshot_id: str = Field(min_length=1, max_length=80)
     status: HandoverStatus = HandoverStatus.PUBLISHED
     exception_reason: str = Field(default="", max_length=2000)
+    exception_approved_by: str | None = Field(default=None, max_length=120)
+    exception_approved_role: str | None = Field(default=None, max_length=80)
     change_request: str = Field(default="", max_length=2000)
     created_at: str
     published_at: str
