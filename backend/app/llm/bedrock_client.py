@@ -82,8 +82,13 @@ def llm_provider() -> str:
 
 
 def llm_api_key() -> str:
-    """Return the gateway key without ever logging or exposing its value."""
-    return os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY", "")
+    """Return the gateway key without ever logging or exposing its value.
+
+    ``API_KEY`` is the variable name used by the competition guide. The
+    app-specific ``LLM_API_KEY`` remains the preferred name so it cannot be
+    confused with unrelated API credentials in a shared environment.
+    """
+    return os.getenv("LLM_API_KEY") or os.getenv("API_KEY") or os.getenv("OPENAI_API_KEY", "")
 
 
 def llm_base_url() -> str:

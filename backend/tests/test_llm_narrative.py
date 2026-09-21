@@ -203,3 +203,15 @@ def test_gateway_model_defaults_split_by_task(monkeypatch: pytest.MonkeyPatch) -
 
     assert llm_model_id() == "bedrock-gpt-5.6-terra"
     assert llm_model_id("structuring") == "bedrock-haiku"
+
+
+def test_gateway_accepts_the_competition_guide_api_key_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.llm.bedrock_client import llm_api_key
+
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("API_KEY", "guide-key")
+
+    assert llm_api_key() == "guide-key"
