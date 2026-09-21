@@ -62,6 +62,7 @@ import { brand } from "./brand";
 
 type Page = "workspace" | "cases" | "history" | "datasets" | "guide";
 type Tab = "signals" | "results" | "review" | "chat";
+type CaseInboxFilter = "all" | "action" | "handover" | "closed";
 type Saved = { id: string; incident: string; at: string };
 const message = (e: unknown) =>
   e instanceof Error ? e.message : "요청을 처리하지 못했습니다.";
@@ -242,6 +243,7 @@ export default function App() {
   const [cases, setCases] = useState<InvestigationCase[]>([]);
   const [activeCase, setActiveCase] = useState<InvestigationCase | null>(null);
   const [casesAvailable, setCasesAvailable] = useState(true);
+  const [caseInboxFilter, setCaseInboxFilter] = useState<CaseInboxFilter>("all");
   const [shiftAssignee, setShiftAssignee] = useState("Shift B");
   const [workspaceFilter, setWorkspaceFilter] = useState<ShiftWorkspaceFilter>("action_required");
   const [shiftWorkspace, setShiftWorkspace] = useState<ShiftWorkspace | null>(null);
@@ -1137,6 +1139,17 @@ export default function App() {
     datasets: "데이터셋",
     guide: "사용 안내",
   }[page];
+  const visibleCases = cases.filter((item) => {
+    if (caseInboxFilter === "closed") return item.status === "closed";
+    if (caseInboxFilter === "action") {
+      return item.status !== "closed" && item.tasks.some((task) => task.status === "pending");
+    }
+    if (caseInboxFilter === "handover") {
+      return item.status !== "closed" && item.handovers.length > 0;
+    }
+    return true;
+  });
+
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main">
@@ -2097,9 +2110,27 @@ export default function App() {
                     <p>
                       아직 확인이 끝나지 않아 다음 작업이 필요한 사건만 보여줍니다.
                     </p>
+                    <div className="case-inbox-filters" aria-label="사건 목록 필터">
+                      {([
+                        ["all", "전체", cases.length],
+                        ["action", "내 확인 업무", cases.filter((item) => item.status !== "closed" && item.tasks.some((task) => task.status === "pending")).length],
+                        ["handover", "인수인계", cases.filter((item) => item.status !== "closed" && item.handovers.length > 0).length],
+                        ["closed", "종료됨", cases.filter((item) => item.status === "closed").length],
+                      ] as [CaseInboxFilter, string, number][]).map(([filter, label, count]) => (
+                        <button
+                          className={caseInboxFilter === filter ? "active" : ""}
+                          key={filter}
+                          type="button"
+                          aria-pressed={caseInboxFilter === filter}
+                          onClick={() => setCaseInboxFilter(filter)}
+                        >
+                          {label}<span>{count}</span>
+                        </button>
+                      ))}
+                    </div>
                     <div className="case-list">
-                      {cases.length ? (
-                        cases.map((item) => (
+                      {visibleCases.length ? (
+                        visibleCases.map((item) => (
                           <button
                             className={`case-list-item ${activeCase?.id === item.id ? "selected" : ""}`}
                             key={item.id}
@@ -2119,8 +2150,8 @@ export default function App() {
                         ))
                       ) : (
                         <Empty
-                          title="열린 사건이 없습니다"
-                          detail="사건 조사에서 근거 분석을 실행한 뒤 ‘확인 업무로 전환’을 선택해 보세요."
+                          title="이 필터에 해당하는 사건이 없습니다"
+                          detail="다른 보기를 선택하거나 새 사건의 확인 업무를 만들어 보세요."
                         />
                       )}
                     </div>
@@ -2143,10 +2174,37 @@ export default function App() {
                             {caseStatusLabel[activeCase.status]}
                           </span>
                         </div>
-                        <div className="case-next-action">
-                          <Bot size={20} />
+                        <div className="case-flow" aria-label="Case 진행 단계">
+                          <div className="case-flow-label">이 Case의 흐름</div>
+                          <ol>
+                            <li className="complete"><span>1</span>이상 감지</li>
+                            <li className={activeCase.tasks.length ? "active" : "complete"}><span>2</span>근거 확인</li>
+                            <li className={activeCase.handovers.length ? "active" : "pending"}><span>3</span>교대 인수인계</li>
+                            <li className={activeCase.status === "closed" ? "complete" : "pending"}><span>4</span>해결 확인</li>
+                          </ol>
+                        </div>
+                        <div className="case-state-strip" aria-label="Case 상태 요약">
+                          <div className="case-state-primary">
+                            <span>지금 해야 할 일</span>
+                            <strong>{displayText(activeCase.next_action)}</strong>
+                          </div>
                           <div>
-                            <strong>Case Orchestrator의 다음 단계</strong>
+                            <span>확인 업무</span>
+                            <strong>{activeCase.tasks.filter((task) => task.status === "pending").length}개 남음</strong>
+                          </div>
+                          <div>
+                            <span>미확인 항목</span>
+                            <strong>{activeCase.open_items.filter((item) => item.status !== "resolved").length}개</strong>
+                          </div>
+                          <div>
+                            <span>인수인계</span>
+                            <strong>{activeCase.handovers.length ? "Packet 있음" : "아직 없음"}</strong>
+                          </div>
+                        </div>
+                        <div className="case-next-action">
+                          <ArrowRight size={20} />
+                          <div>
+                            <strong>다음 담당자가 확인할 한 가지</strong>
                             <p>{displayText(activeCase.next_action)}</p>
                           </div>
                         </div>

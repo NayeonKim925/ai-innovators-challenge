@@ -38,6 +38,254 @@
   }
 }
 
+/* Case workspace hierarchy: orient first, investigate second. */
+.shift-workspace-panel {
+  padding: 26px 28px 24px;
+  background: #102f3a;
+  border: 0;
+  color: #f5fbfa;
+}
+.shift-workspace-heading h2 {
+  color: #fff;
+  font-size: 22px;
+  font-weight: 750;
+  letter-spacing: -0.5px;
+}
+.shift-workspace-heading p {
+  color: #b9ced0;
+  font-size: 13px;
+}
+.shift-workspace-controls label {
+  color: #b9ced0;
+  font-size: 11px;
+}
+.shift-workspace-controls input,
+.shift-workspace-controls select {
+  min-height: 42px;
+  border: 1px solid #41616a;
+  border-radius: 8px;
+  background: #173d48;
+  color: #fff;
+  font-size: 13px;
+}
+.shift-workspace-controls .button.secondary {
+  border-color: #5a7b81;
+  background: transparent;
+  color: #fff;
+}
+.shift-workspace-summary {
+  gap: 8px;
+  border: 0;
+  margin-top: 22px;
+}
+.shift-workspace-summary div {
+  min-height: 82px;
+  border: 1px solid #335661;
+  border-radius: 10px;
+  background: #173d48;
+  padding: 14px 15px;
+}
+.shift-workspace-summary strong {
+  color: #fff;
+  font-size: 26px;
+  font-weight: 750;
+}
+.shift-workspace-summary span {
+  color: #b9ced0;
+  font-size: 12px;
+  margin-top: 7px;
+}
+.shift-workspace-list {
+  margin-top: 16px;
+}
+.shift-workspace-item {
+  border: 1px solid #41616a;
+  border-radius: 10px;
+  background: #f5fbfa;
+  padding: 16px 44px 16px 17px;
+}
+.shift-workspace-item-main strong {
+  color: #102f3a;
+  font-size: 15px;
+}
+.shift-workspace-item-main span,
+.shift-workspace-item p {
+  color: #536b73;
+  font-size: 12px;
+}
+.shift-workspace-reasons .badge {
+  background: #e6f3f1;
+  color: #087f7b;
+}
+.case-flow {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 17px 28px;
+  border-bottom: 1px solid #d8e6e5;
+  background: #f7fbfa;
+}
+.case-flow-label {
+  flex-shrink: 0;
+  color: #536b73;
+  font-size: 12px;
+  font-weight: 700;
+}
+.case-flow ol {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.case-flow li {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  gap: 8px;
+  color: #8b9ba0;
+  font-size: 12px;
+  font-weight: 600;
+}
+.case-flow li:not(:last-child)::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  margin: 0 12px;
+  background: #cbdcda;
+}
+.case-flow li span {
+  display: grid;
+  width: 25px;
+  height: 25px;
+  flex-shrink: 0;
+  place-items: center;
+  border: 1px solid #c3d6d3;
+  border-radius: 50%;
+  color: #779096;
+  font-size: 11px;
+}
+.case-flow li.complete,
+.case-flow li.active {
+  color: #087f7b;
+}
+.case-flow li.complete span,
+.case-flow li.active span {
+  border-color: #087f7b;
+  background: #e0f1ed;
+  color: #087f7b;
+}
+.case-flow li.active span {
+  box-shadow: 0 0 0 4px #d5eeea;
+}
+.case-state-strip {
+  display: grid;
+  grid-template-columns: minmax(250px, 1.7fr) repeat(3, minmax(130px, 1fr));
+  gap: 1px;
+  padding: 20px 28px;
+  background: #cfe0de;
+}
+.case-state-strip > div {
+  min-height: 74px;
+  background: #fff;
+  padding: 14px 16px;
+}
+.case-state-strip > div:first-child {
+  border-radius: 10px 0 0 10px;
+}
+.case-state-strip > div:last-child {
+  border-radius: 0 10px 10px 0;
+}
+.case-state-strip span {
+  display: block;
+  color: #6a8086;
+  font-size: 11px;
+  font-weight: 650;
+}
+.case-state-strip strong {
+  display: block;
+  overflow: hidden;
+  color: #193e47;
+  font-size: 15px;
+  line-height: 1.4;
+  margin-top: 6px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.case-state-primary {
+  border-left: 4px solid #d97706;
+}
+.case-state-primary strong {
+  color: #a34b08;
+}
+.case-detail .case-next-action {
+  border-bottom: 1px solid #d9e8e5;
+  background: #fff8ed;
+  color: #6d3c0c;
+}
+.case-detail .case-next-action svg {
+  color: #d97706;
+}
+.case-detail .case-next-action strong {
+  color: #7c430b;
+  font-size: 14px;
+}
+.case-detail .case-next-action p {
+  color: #875e34;
+}
+@media (max-width: 900px) {
+  .case-flow {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .case-state-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .case-state-strip > div:first-child,
+  .case-state-strip > div:last-child {
+    border-radius: 0;
+  }
+}
+@media (max-width: 650px) {
+  .shift-workspace-panel {
+    padding: 20px 18px;
+  }
+  .shift-workspace-heading {
+    display: block;
+  }
+  .shift-workspace-controls {
+    margin-top: 18px;
+  }
+  .shift-workspace-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .case-flow,
+  .case-state-strip {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+  .case-flow ol {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  .case-flow li:not(:last-child)::after {
+    display: none;
+  }
+  .case-state-strip {
+    grid-template-columns: 1fr;
+    gap: 1px;
+  }
+  .case-state-strip > div,
+  .case-state-strip > div:first-child,
+  .case-state-strip > div:last-child {
+    border-radius: 0;
+  }
+}
+
 /* Continuum field-operations pass: prioritize scanability over dashboard density. */
 :root {
   --ink: #102f3a;
@@ -2279,6 +2527,49 @@ tbody tr:last-child td {
   font-size: 11px;
   line-height: 1.7;
   padding: 0 18px 16px;
+}
+.case-inbox-filters {
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  padding: 0 18px 16px;
+}
+.case-inbox-filters button {
+  align-items: center;
+  background: #f8fbfa;
+  border: 1px solid #dce7e5;
+  border-radius: 6px;
+  color: #688085;
+  display: flex;
+  font-size: 10px;
+  justify-content: space-between;
+  min-height: 34px;
+  padding: 0 9px;
+  text-align: left;
+}
+.case-inbox-filters button:hover {
+  border-color: #a7cbc1;
+  color: #2d605b;
+}
+.case-inbox-filters button.active {
+  background: #e8f5f1;
+  border-color: #72b5a5;
+  color: #205e57;
+  font-weight: 650;
+}
+.case-inbox-filters span {
+  background: #e5edeb;
+  border-radius: 999px;
+  color: #5b7778;
+  font-size: 9px;
+  min-width: 18px;
+  padding: 2px 5px;
+  text-align: center;
+}
+.case-inbox-filters button.active span {
+  background: #c7e6dc;
+  color: #205e57;
 }
 .case-list {
   border-top: 1px solid var(--border);
