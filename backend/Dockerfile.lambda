@@ -20,6 +20,7 @@ RUN pip install --no-cache-dir \
     "langgraph>=0.4,<1" \
     "mangum>=0.19,<1" \
     "anthropic>=0.40" \
+    "openai>=1.66,<2" \
     "numpy>=1.26,<3" \
     "scipy>=1.14,<2" \
     "scikit-learn>=1.5,<2"

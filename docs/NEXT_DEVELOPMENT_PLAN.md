@@ -117,6 +117,12 @@ RCA Run R1
 
 #### 구현 작업
 
+- `backend/app/llm/bedrock_client.py`
+  - 대회 제공 OpenAI-compatible Gateway와 직접 AWS Bedrock을 같은 Provider 경계로 지원한다.
+  - `LLM_PROVIDER=competition_gateway`일 때 `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`을 사용한다.
+  - Gateway 장애·SDK 미설치·키 미설정 시 기존 결정론적 결과로 폴백한다.
+- `backend/app/main.py`
+  - `/api/health`에서 활성 LLM provider와 모델 설정 상태를 노출한다.
 - `backend/app/services/context_structuring.py` 신규
   - 입력: 원문 메모 + 허용된 현재 Case context
   - 출력: Observation/Open Item/Hypothesis 변경 제안
@@ -140,6 +146,15 @@ RCA Run R1
 - 모든 AI 주장에 Evidence/Observation 출처가 있거나 `이유 미기록`으로 표시된다.
 - 동일 입력에서 LLM 미설정 상태도 동일한 기본 Resume을 제공한다.
 - 작업자는 제안을 수정·거절한 뒤에만 상태를 저장할 수 있다.
+
+#### P2-1 구현 기록 — Competition LLM Gateway Provider
+
+- OpenAI-compatible Gateway 호출 경로를 기존 direct Bedrock 경로와 분리했다.
+- 기본 provider는 `direct_bedrock`으로 유지하고, 대회 검증 시 `LLM_PROVIDER=competition_gateway`로 전환한다.
+- 현재 내러티브 경로에서 Gateway의 Chat Completions 응답, 근거 ID 검증, 토큰 usage 추출을 지원한다.
+- `openai` SDK는 `.[llm]` 선택 의존성 및 Lambda 이미지에 반영했다.
+- 검증: backend 전체 71 passed, Gateway 응답 shape/health 설정 테스트 포함.
+- 실제 Gateway smoke test는 팀 API key 입력 후에만 실행한다. 키는 저장소·채팅·프론트엔드에 올리지 않는다.
 
 ### P3 — Case Memory / RAG
 

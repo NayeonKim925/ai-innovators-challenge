@@ -46,6 +46,18 @@ def test_health_exposes_runtime_safety_configuration(tmp_path: Path, monkeypatch
     assert body["guardrail_configured"] is False
 
 
+def test_health_reports_configured_competition_gateway(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("LLM_PROVIDER", "competition_gateway")
+    monkeypatch.setenv("LLM_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_MODEL", "bedrock-haiku")
+    client = _client_with_prepared_incident(tmp_path)
+
+    body = client.get("/api/health").json()
+
+    assert body["llm_provider"] == "competition_gateway"
+    assert body["llm_model"] == "bedrock-haiku"
+
+
 def test_api_investigation_review_and_report_roundtrip(tmp_path: Path) -> None:
     """2-A: POST investigations -> GET investigations/{id} -> POST reviews ->
     GET report must all round-trip through the same in-memory store."""

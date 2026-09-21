@@ -36,7 +36,7 @@ from .domain import (
     ShiftWorkspaceFilter,
     StoredReview,
 )
-from .llm.bedrock_client import bedrock_model_id, llm_timeout_s
+from .llm.bedrock_client import llm_is_configured, llm_model_id, llm_provider, llm_timeout_s
 from .repositories.cases import (
     CaseConflictError,
     CaseNotFoundError,
@@ -156,15 +156,15 @@ def create_app(
         )
         case_storage = "dynamodb" if os.getenv("CASE_DDB_TABLE") else "in_memory"
         guardrail_configured = bool(os.getenv("BEDROCK_GUARDRAIL_ID"))
-        llm_configured = bool(os.getenv("BEDROCK_MODEL_ID"))
+        llm_configured = llm_is_configured()
         return {
             "status": "ok",
             "mode": "deterministic",
             "deployment": os.getenv("DEPLOYMENT_ENV", "local-research"),
             "storage": investigation_storage,
             "case_storage": case_storage,
-            "llm_provider": "bedrock" if llm_configured else "not_configured",
-            "llm_model": bedrock_model_id() if llm_configured else "",
+            "llm_provider": llm_provider() if llm_configured else "not_configured",
+            "llm_model": llm_model_id() if llm_configured else "",
             "llm_timeout_s": llm_timeout_s(),
             "guardrail_configured": guardrail_configured,
         }

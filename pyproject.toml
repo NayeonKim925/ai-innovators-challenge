@@ -42,6 +42,10 @@ frontend = [
   "streamlit>=1.38,<2",
   "requests>=2.32,<3",
 ]
+# Required only when using the competition's OpenAI-compatible LLM gateway.
+llm = [
+  "openai>=1.66,<2",
+]
 # Required only for the AWS Lambda container deployment (backend/Dockerfile.lambda).
 # Mangum adapts the same FastAPI `app` object to the Lambda/API Gateway proxy
 # event -- create_app()/main.py are never modified for this deployment path.
