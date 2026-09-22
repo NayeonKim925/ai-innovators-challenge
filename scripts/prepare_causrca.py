@@ -19,7 +19,6 @@ import math
 from pathlib import Path
 from typing import Any
 
-
 ROOT = Path(__file__).resolve().parents[1]
 OBSERVATION_FIELDS = ("time_s", "node", "value", "type")
 
@@ -104,9 +103,12 @@ def prepare(source: Path, runtime_root: Path, evaluation_root: Path) -> dict[str
             raise ValueError(f"Expected one scenario description for {recording}")
         scenario = read_json(scenario_files[0])
         diagnosis_time = float(timing["diagnosis_at"])
+        cause_start_at = float(timing["cause_start_at"])
         truth = sorted(set(scenario["manipulatedVars"]))
         if not truth or not observations[0]["time_s"] <= diagnosis_time <= observations[-1]["time_s"]:
             raise ValueError(f"Invalid evaluation metadata for {recording}")
+        if not observations[0]["time_s"] <= cause_start_at <= observations[-1]["time_s"]:
+            raise ValueError(f"Invalid cause_start_at for {recording}")
 
         runtime_incidents.append(
             {
@@ -122,6 +124,10 @@ def prepare(source: Path, runtime_root: Path, evaluation_root: Path) -> dict[str
             {
                 "case_id": case_id,
                 "diagnosis_time": diagnosis_time,
+                # AGENT_FAULT_DETECTION_PLAN.md Phase 1: evaluation-only ground truth
+                # for scoring the fault-onset detector (evals/run_fault_onset_benchmark.py).
+                # Never copied into runtime_incidents.
+                "cause_start_at": cause_start_at,
                 "ground_truth_nodes": truth,
                 "subsystem": scenario.get("group", "unknown"),
                 "source_file": relative.as_posix(),

@@ -30,7 +30,8 @@
 - `GET /api/datasets`
 - `GET /api/incidents`
 - `GET /api/incidents/{incident_id}`
-- `POST /api/incidents/{incident_id}/investigations` — `include_llm_narrative`(기본 `False`)를 요청하면 결정론적 결과 뒤에 `backend/app/llm/explainer.py`의 요약을 덧붙인다. LLM이 실패/미가용이면 `mode`는 `"deterministic"`로 남고 `llm_narrative`는 `None`이다. 응답에는 저장된 조사를 가리키는 `investigation_id`가 포함된다.
+- `POST /api/incidents/{incident_id}/investigations` — `include_llm_narrative`(기본 `False`)를 요청하면 결정론적 결과 뒤에 `backend/app/llm/explainer.py`의 요약을 덧붙인다. LLM이 실패/미가용이면 `mode`는 `"deterministic"`로 남고 `llm_narrative`는 `None`이다. 응답에는 저장된 조사를 가리키는 `investigation_id`가 포함된다. `diagnosis_time`을 사람이 직접 지정하는 수동 경로다.
+- `POST /api/incidents/{incident_id}/detect` — [ADR-0005](decisions/ADR-0005-agent-first-fault-detection.md) / [AGENT_FAULT_DETECTION_PLAN.md](AGENT_FAULT_DETECTION_PLAN.md) Phase 1. 사람이 cutoff를 고르지 않고, `observed_up_to_s`(재생 시뮬레이터의 현재 위치)까지 관측된 알람만으로 `workflows/detection.py`의 탐지 에이전트가 fault onset을 스스로 추정한다. 활성 알람을 찾으면(`decision: "trigger_rca"`) 그 시각을 cutoff로 `run_investigation`을 자동 실행해 `investigation`/`investigation_id`까지 응답에 포함하고, 못 찾으면(`decision: "await_more_data"`) `investigation`은 `null`이다. `data/evaluation`의 `cause_start_at`은 이 경로 어디에서도 읽지 않는다 — 탐지 정확도는 `evals/run_fault_onset_benchmark.py`에서만 채점한다.
 - `POST /api/incidents/{incident_id}/cases` — LLM 없이 첫 결정론적 AnalysisRun과 Open Item을 가진 Case를 연다.
 - `POST /api/cases/{case_id}/observations`, `/analysis-runs`, `/open-items`, `/hypotheses/{hypothesis_id}/assessments` — 동일 Case의 사람 관찰·후속 Run·미확인 항목·가설 판단을 version 검사와 함께 기록한다.
 - `POST /api/cases/{case_id}/handover-checks`, `/handovers`, `/handovers/{handover_id}/acceptance`, `/change-requests` — 결정론적 인계 점검, immutable Snapshot 발행, 인수 또는 설명 요청을 수행한다.

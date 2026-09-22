@@ -34,6 +34,38 @@ def test_api_lists_and_investigates_runtime_incident(tmp_path: Path) -> None:
     assert isinstance(body["investigation_id"], str) and body["investigation_id"]
 
 
+def test_api_detects_fault_onset_and_auto_triggers_investigation(tmp_path: Path) -> None:
+    client = _client_with_prepared_incident(tmp_path)
+
+    result = client.post(
+        "/api/incidents/case_1/detect",
+        json={"observed_up_to_s": 10},
+    )
+
+    assert result.status_code == 200
+    body = result.json()
+    assert body["detection"]["decision"] == "trigger_rca"
+    assert body["detection"]["onset_time_s"] == 2
+    assert body["investigation_id"] is not None
+    assert body["investigation"]["diagnosis_time"] == 2
+    assert body["investigation"]["candidates"][0]["signal"] == "P101"
+
+
+def test_api_detect_awaits_more_data_before_any_alarm(tmp_path: Path) -> None:
+    client = _client_with_prepared_incident(tmp_path)
+
+    result = client.post(
+        "/api/incidents/case_1/detect",
+        json={"observed_up_to_s": 1},
+    )
+
+    assert result.status_code == 200
+    body = result.json()
+    assert body["detection"]["decision"] == "await_more_data"
+    assert body["investigation_id"] is None
+    assert body["investigation"] is None
+
+
 def test_health_exposes_runtime_safety_configuration(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LLM_TIMEOUT_S", "999")
     client = _client_with_prepared_incident(tmp_path)

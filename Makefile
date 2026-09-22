@@ -1,4 +1,4 @@
-.PHONY: install api frontend frontend-react test lint bootstrap-causrca prepare-causrca validate-data benchmark-causrca
+.PHONY: install api frontend frontend-react test lint bootstrap-causrca prepare-causrca validate-data benchmark-causrca benchmark-fault-onset
 
 install:
 	python -m pip install -e '.[dev]'
@@ -31,3 +31,6 @@ validate-data:
 
 benchmark-causrca:
 	python -m evals.run_causrca_benchmark --method time_recency
+
+benchmark-fault-onset:
+	python -m evals.run_fault_onset_benchmark

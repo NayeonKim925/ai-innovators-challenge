@@ -6,6 +6,7 @@
 
 ## 지표
 
+- **fault 탐지 (Phase 1, [AGENT_FAULT_DETECTION_PLAN.md](AGENT_FAULT_DETECTION_PLAN.md))**: `evals/run_fault_onset_benchmark.py`가 알람 기반 onset 추정치와 `cause_start_at`(evaluation 전용)을 비교한다. `detection_rate`(활성 알람을 찾은 비율), `mean_lag_s`/`median_lag_s`(추정 시각 − 실제 원인 시작, 인과관계상 항상 양수가 정상), `hit_within_5s`/`hit_within_10s`. 정상 운전(`real_op`) 데이터에 대한 오탐률은 Phase 2에서 추가한다.
 - 원인 후보 순위: Hit@1, Hit@3, MRR, MAP@3
 - 워크플로우: 올바른 도구 선택률, 구조화 출력 유효성, 실행 이력 완결성, 필수 증거 업무 누락률, 무검토 종료율(목표 0)
 - 근거: 근거 없는 주장 비율, 인용·관측값 일치율, 판단 보류 품질

@@ -20,6 +20,7 @@ from .domain import (
     CaseReviewDecision,
     ChatRequest,
     DatasetName,
+    DetectionRequest,
     ExpertTaskResponse,
     HandoverAcceptanceRequest,
     HandoverChangeRequest,
@@ -81,6 +82,7 @@ from .services.context_structuring import (
     accept_structuring_proposal,
     build_structuring_proposals,
 )
+from .services.detection import run_auto_detection
 from .services.investigations import answer_question, run_investigation
 from .services.narrative_jobs import (
     NarrativeQueueUnavailable,
@@ -269,6 +271,41 @@ def create_app(
                 content={"investigation_id": investigation_id, **result.model_dump(mode="json")},
             )
         return {"investigation_id": investigation_id, **result.model_dump(mode="json")}
+
+    @app.post("/api/incidents/{incident_id}/detect")
+    def detect_fault(
+        incident_id: str,
+        body: DetectionRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        """Agent entry point: decide whether a fault has started, without a human cutoff.
+
+        `body.observed_up_to_s` is the stream simulator's current playback position,
+        not a cause-finding cutoff a human picked with foreknowledge of the answer
+        (see docs/AGENT_FAULT_DETECTION_PLAN.md Phase 1). When the agent decides
+        `trigger_rca`, this also runs and stores the RCA investigation automatically
+        at the detected onset time -- the caller never chooses `diagnosis_time`.
+        """
+        require_api_token(authorization)
+        incident = app.state.repository.get_incident(incident_id)
+        if incident is None:
+            raise HTTPException(status_code=404, detail="Incident not found")
+        if not incident.time_range_s.start <= body.observed_up_to_s <= incident.time_range_s.end:
+            raise HTTPException(
+                status_code=422,
+                detail="observed_up_to_s must be within the runtime incident range",
+            )
+        detection, investigation = run_auto_detection(incident, body.observed_up_to_s)
+        response: dict[str, object] = {"detection": detection.model_dump(mode="json")}
+        if investigation is not None:
+            investigation_id = uuid.uuid4().hex
+            app.state.investigations.save(investigation_id, investigation)
+            response["investigation_id"] = investigation_id
+            response["investigation"] = investigation.model_dump(mode="json")
+        else:
+            response["investigation_id"] = None
+            response["investigation"] = None
+        return response
 
     @app.post("/api/incidents/{incident_id}/cases")
     def create_case(

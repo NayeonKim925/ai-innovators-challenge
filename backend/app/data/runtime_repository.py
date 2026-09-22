@@ -18,6 +18,12 @@ FORBIDDEN_RUNTIME_KEYS = frozenset(
         "diagnosis_time",
         "fault_name",
         "split",
+        # AGENT_FAULT_DETECTION_PLAN.md Phase 1: these causRCA `causes.json` timing
+        # fields are captured in `data/evaluation/causrca/cases.json` only, to score
+        # the fault-onset detector. They must never reach runtime -- the detector
+        # estimates onset from observable alarms alone (analytics/fault_onset.py).
+        "cause_start_at",
+        "cause_end_at",
     }
 )
 

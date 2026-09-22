@@ -309,6 +309,33 @@ class InvestigationResult(BaseModel):
     llm_status: LLMStatus = LLMStatus.NOT_REQUESTED
 
 
+class DetectionRequest(BaseModel):
+    """How far into a recording the stream simulator has played so far."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    observed_up_to_s: float = Field(ge=0)
+
+
+class FaultDetectionResult(BaseModel):
+    """Output of the fault-detection agent (ADR-0005 / AGENT_FAULT_DETECTION_PLAN.md).
+
+    ``decision`` records what the agent chose to do next given the observed
+    signals -- it never asserts a confirmed fault, only that enough evidence
+    exists to hand off to root-cause ranking, or that observation should
+    continue.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    incident_id: str
+    observed_up_to_s: float = Field(ge=0)
+    onset_time_s: float | None = None
+    decision: Literal["trigger_rca", "await_more_data"]
+    evidence: Evidence | None = None
+    trace: list[TraceEvent]
+
+
 class ReviewDecision(BaseModel):
     """Human-in-the-loop review of one investigation (2-A)."""
 
