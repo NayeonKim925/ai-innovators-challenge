@@ -7,6 +7,7 @@ test("real data: investigate, inspect evidence, review, ask, export, restore", a
   page.on("pageerror", (e) => errors.push(e.message));
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.goto("/");
+  await page.getByRole("button", { name: "새 사건 분석" }).click();
   await expect(page).toHaveTitle("Continuum 컨티뉴엄 · 제조 이상 조사·교대 연속성 워크스페이스");
   await expect(page.getByRole("link", { name: "Continuum 컨티뉴엄 · 조사 홈" })).toBeVisible();
   await expect(page.locator('meta[name="description"]')).toHaveAttribute("content", /Continuum\(컨티뉴엄\)/);
@@ -80,6 +81,7 @@ test("mobile: layout, search, empty dataset and keyboard navigation", async ({
 }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
+  await page.getByRole("button", { name: "새 사건 분석" }).click();
   await expect(page.getByRole("link", { name: "Continuum 컨티뉴엄 · 조사 홈" })).toBeVisible();
   await expect(
     page.getByRole("button", { name: "조사 실행", exact: true }),
@@ -108,6 +110,7 @@ test("mobile: layout, search, empty dataset and keyboard navigation", async ({
   ).toBeEnabled();
   await page.keyboard.press("Control+Home");
   await page.goto("/");
+  await page.getByRole("button", { name: "새 사건 분석" }).click();
   await page.keyboard.press("Tab");
   await expect(page.getByRole("link", { name: "본문으로 이동" })).toBeFocused();
 });
@@ -117,6 +120,7 @@ test("API failure is actionable and retry recovers", async ({ page }) => {
     r.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
   );
   await page.goto("/");
+  await page.getByRole("button", { name: "새 사건 분석" }).click();
   await expect(page.getByRole("alert")).toContainText("서비스가 준비 중");
   await page.unroute("**/api/incidents?*");
   await page.getByRole("button", { name: "다시 시도" }).click();
@@ -131,6 +135,7 @@ test("case orchestration requires evidence confirmation before closure", async (
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");
+  await page.getByRole("button", { name: "새 사건 분석" }).click();
   await page
     .getByRole("button", { name: /최근 알람 발생 시점으로 이동/ })
     .click();
@@ -139,9 +144,9 @@ test("case orchestration requires evidence confirmation before closure", async (
   await page.getByRole("button", { name: "확인 업무로 전환" }).click();
 
   await expect(
-    page.getByRole("region", { name: "사건 인박스" }),
+    page.getByRole("region", { name: "Case 목록과 상세" }),
   ).toBeVisible();
-  await expect(page.getByText("전문가 확인 업무")).toBeVisible();
+  await expect(page.getByText("확인 업무")).toBeVisible();
   await page.locator(".task-form input").fill("E2E 공정 전문가");
   await page.locator(".task-form textarea").fill("공개 데이터 기반 확인 기록입니다.");
   await page.getByRole("button", { name: "응답 기록" }).click();
@@ -160,6 +165,7 @@ test("case orchestration requires evidence confirmation before closure", async (
 
 test("ledger summary and case navigation remain usable at narrow widths", async ({ page }) => {
   await page.goto("/");
+  await page.getByRole("button", { name: "새 사건 분석" }).click();
   const summary = page.getByLabel("조사 환경 요약");
   await expect(summary).toContainText("분석 데이터");
   await expect(summary).toContainText("진단 시점 이후 데이터 제외");
