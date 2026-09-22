@@ -276,9 +276,11 @@
     display: none;
   }
   .case-state-strip {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 1px;
   }
+  .case-state-strip > div { min-width: 0; }
+  .case-state-strip strong { overflow-wrap: anywhere; white-space: normal; }
   .case-state-strip > div,
   .case-state-strip > div:first-child,
   .case-state-strip > div:last-child {
@@ -2102,6 +2104,16 @@ tbody tr:last-child td {
     padding: 12px;
     flex-wrap: wrap;
   }
+  .sidebar nav {
+    flex-wrap: wrap;
+    margin-left: 0;
+    width: 100%;
+  }
+  .sidebar nav .nav-item {
+    flex: 1 1 30%;
+    justify-content: center;
+    width: auto;
+  }
   .nav-item {
     font-size: 10px;
     gap: 4px;
@@ -3372,6 +3384,7 @@ tbody tr:last-child td {
   font-size: 10px;
   line-height: 1.65;
   margin-top: 4px;
+  overflow-wrap: anywhere;
 }
 .agent-ledger small {
   color: #92a0a5;
@@ -3569,23 +3582,25 @@ tbody tr:last-child td {
 }
 
 /* The Case reading order follows overview, continuity, work, judgment, analysis, handover. */
-.case-overview,
-.case-continuity-panel,
-.case-work-section,
-.case-hypothesis-section,
-.case-analysis-section {
+.case-overview-panel,
+.continuity-comparison-wrap,
+.case-todo-panel,
+.case-hypothesis-panel,
+.analysis-run-panel {
   border-bottom: 1px solid #dfe8e7;
   padding: 22px 24px;
 }
-.case-overview { background: #fff; }
-.case-continuity-panel { background: #fbfdfd; }
-.case-overview .resume-grid { margin-top: 12px; }
-.case-overview .resume-grid dt { color: #50676e; font-size: 10px; font-weight: 600; }
-.case-overview .resume-grid dd { color: #314f55; font-size: 11px; margin: 5px 0 0; overflow-wrap: anywhere; }
-.case-overview .resume-grid small { color: #809096; display: block; font-size: 9px; margin-top: 4px; overflow-wrap: anywhere; }
+.case-overview-panel { background: #fff; }
+.continuity-comparison-wrap { background: #fbfdfd; }
+.analysis-run-panel { border-top: 0; border-left: 0; border-right: 0; margin-top: 0; }
+.case-overview-panel .resume-grid { margin-top: 12px; }
+.case-overview-panel .resume-grid strong { color: #50676e; font-size: 10px; font-weight: 600; }
+.case-overview-panel .resume-grid p { color: #314f55; font-size: 11px; margin: 5px 0 0; overflow-wrap: anywhere; }
+.case-overview-panel .resume-grid small { color: #809096; display: block; font-size: 9px; margin-top: 4px; overflow-wrap: anywhere; }
 .case-section-heading { margin-bottom: 14px; }
 .case-section-heading h3 { font-size: 16px; font-weight: 600; }
 .case-section-heading p { color: var(--muted); font-size: 11px; margin-top: 5px; }
+.state-editor-grid.single { grid-template-columns: minmax(0, 1fr); }
 .case-work-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 12px; }
 .case-work-grid .human-queue { border: 1px solid #dce7e5; padding: 14px; }
 .case-work-grid .human-queue .section-heading { margin-bottom: 0; }
@@ -3620,10 +3635,11 @@ tbody tr:last-child td {
   .case-work-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 650px) {
-  .case-overview,
-  .case-continuity-panel,
-  .case-work-section,
-  .case-hypothesis-section,
-  .case-analysis-section { padding: 18px 16px; }
+  .case-overview-panel,
+  .continuity-comparison-wrap,
+  .case-todo-panel,
+  .case-hypothesis-panel,
+  .analysis-run-panel,
+  .agent-ledger.standalone { padding: 18px 16px; }
   .shift-card-primary { grid-template-columns: 1fr; }
 }
