@@ -124,13 +124,74 @@ class _BaselineModel:
 _MODEL_CACHE: dict[Path, _BaselineModel] = {}
 
 
+_MIN_MONOTONIC_EVIDENCE = 3
+_MONOTONIC_FRACTION_THRESHOLD = 0.95
+
+
+def _monotonic_fraction_within_recording(
+    observations: list[Observation], signal: str
+) -> float | None:
+    """`None` when there isn't enough same-signal history in this one recording
+    to judge; otherwise the share of consecutive value changes for `signal`
+    that only increased. A fraction rather than a strict all-or-nothing
+    boolean, because a real cumulative counter can still show a rare
+    single-step rounding/logging blip (confirmed against actual real_op data:
+    `Prog_CuttingTime` is monotonic in every normal recording except one,
+    which has a single non-monotonic step among 260 -- still clearly a
+    counter, not a real bidirectional process variable)."""
+    encoded = [
+        _encode(item)
+        for item in sorted((o for o in observations if o.signal == signal), key=lambda o: o.time_s)
+    ]
+    encoded = [value for value in encoded if value is not None]
+    if len(encoded) < 2:
+        return None
+    pairs = list(zip(encoded, encoded[1:]))
+    return sum(later >= earlier for earlier, later in pairs) / len(pairs)
+
+
 def _select_feature_names(normal: list) -> list[str]:
+    """Pick nodes for the PCA feature space: encodable, present in most normal
+    recordings, and NOT a cumulative counter.
+
+    ★ Why the monotonic check ★
+    A real fault-detection smoke test against actual causRCA data (2026-09-22)
+    found the single largest PCA contributor was `Prog_CuttingTime` -- total
+    accumulated cutting time, a counter that only ever increases. Baseline
+    real_op recordings and dig_twin HIL recordings don't share a "session
+    clock," so this feature's absolute value differs between them for reasons
+    that have nothing to do with any fault, dominating the reconstruction
+    error and making the anomaly score mostly measure "is this a real_op
+    session or a HIL one" instead of "does this look like a fault." Any node
+    whose value never decreases in every normal recording with enough history
+    to judge (needs >= 2 observations for that signal within one recording,
+    and at least `_MIN_MONOTONIC_EVIDENCE` such recordings) is treated as a
+    cumulative counter and excluded, the same way `Categorical` nodes are
+    excluded for a different reason (see module docstring).
+    """
     presence: Counter[str] = Counter()
+    monotonic_fractions: dict[str, list[float]] = {}
     for record in normal:
         latest = _latest_by_signal(record.observations, float("inf"))
         presence.update(name for name, item in latest.items() if _encode(item) is not None)
+        for name in {item.signal for item in record.observations}:
+            fraction = _monotonic_fraction_within_recording(record.observations, name)
+            if fraction is not None:
+                monotonic_fractions.setdefault(name, []).append(fraction)
+
     threshold = _MIN_FEATURE_COVERAGE * len(normal)
-    return sorted(name for name, count in presence.items() if count >= threshold)
+    selected = []
+    for name, count in presence.items():
+        if count < threshold:
+            continue
+        fractions = monotonic_fractions.get(name, [])
+        looks_like_a_counter = (
+            len(fractions) >= _MIN_MONOTONIC_EVIDENCE
+            and (sum(fractions) / len(fractions)) >= _MONOTONIC_FRACTION_THRESHOLD
+        )
+        if not looks_like_a_counter:
+            selected.append(name)
+    return sorted(selected)
 
 
 def _build_baseline_model(root: Path) -> _BaselineModel | None:

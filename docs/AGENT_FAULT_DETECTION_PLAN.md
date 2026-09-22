@@ -73,6 +73,8 @@
 
 **구현 중 발견한 스키마 제약**: `Observation.kind`는 `Alarm/Measurement/Event` 세 값만 허용하는데, `scripts/prepare_causrca.py::read_observations`가 causRCA 원본의 `Binary/Continuous/Counter/Categorical` 타입 구분을 전부 `Event`로 뭉개버리고 있었다(Alarm만 보존). 그래서 PCA 인코딩은 `kind`가 아니라 **값 자체의 모양**(숫자로 파싱되는지, true/false 문자열인지)으로 인코딩 가능 여부를 판단하도록 구현했다 — `causrca_anomaly.py` 모듈 docstring에 상세 기록.
 
+**실제 데이터로 스모크테스트하다 발견한 2번째 문제**: 처음 구현에서 PCA 이상점수의 최대 기여 변수가 매번 `Prog_CuttingTime`(누적 가공시간 카운터)이었다 — real_op 세션과 dig_twin HIL 세션은 "세션 시작 시점의 누적값"이 근본적으로 다르므로, 이 신호는 fault 여부와 무관하게 항상 크게 벗어나 있어 이상점수를 지배해버렸다. `_select_feature_names()`에 "정상 기록 안에서 값이 거의 항상 증가만 하는(감소가 거의 없는) 신호는 누적 카운터로 보고 feature에서 제외" 로직을 추가해 해결했다(엄격한 100% 단조 증가가 아니라 95% 이상 기준 — 실측 데이터에서 `Prog_CuttingTime`도 260번 중 1번은 미세하게 역행하는 것을 확인했기 때문). 수정 후 최대 기여 변수는 `TL_lock`, `M_WarnWithStacklight` 등 실제 공정 변수로 바뀌었고, 오탐률 수치(0%/5.3%)는 동일하게 유지됐다 — 즉 안전장치는 원래도 작동했지만, 신호 자체의 신뢰도가 이번 수정으로 실제로 개선됐다.
+
 **목표**: 알람이 아직 안 뜬 "전조 단계"도 잡아내는 두 번째 신호를 추가하고, 두 신호를 사람이 아니라 에이전트가 종합 판단하게 한다.
 
 - `data/manifests/`, `scripts/prepare_causrca.py` 확장: `real_op` 170개를 읽어 `data/runtime/causrca/normal_baseline.json`(Metal Etch의 `NormalWaferRecord` 패턴과 동일한 3필드 요약 스키마)으로 저장.
@@ -84,7 +86,13 @@
   - 두 신호 모두 근거 부족 → `retry_with_wider_window` (최대 재시도 횟수 제한, 무한루프 방지)
 - 매 분기 전이를 `TraceEvent`로 기록 (실행 이력 완결성 지표, EVALUATION.md).
 
-## 5. Phase 3 — 프론트엔드 재설계: Monitor → Investigate → Handover
+## 5. Phase 3 — 프론트엔드 재설계: Monitor → Investigate → Handover (1차 구현 완료, 2026-09-22)
+
+**실제로 구현한 범위**: 새 `frontend/src/Monitor.tsx`를 추가하고 앱의 기본 진입 화면으로 만들었다. 사건 선택 → 배속 재생(5x/20x/60x/200x, 슬라이더로 수동 스크럽도 가능) → 매 tick마다 `/detect` 자동 호출 → 에이전트의 4방향 판단을 상태 배지로 표시 → `trigger_rca`면 원인 후보 미리보기와 "조사 시작" 버튼 노출 → 클릭 시 기존 Case 생성 플로우(`openCaseFromDetection`, 기존 `openCase()`와 동일한 API 호출을 재사용)로 자동 진입. "재생 시뮬레이션(준비된 HIL 기록)"임을 화면에 항상 명시(DESIGN.md 원칙).
+
+**의도적으로 미룬 범위 (정직하게 기록)**: 사용자가 원한 "Case/Handover/Hypothesis/Open Item을 하나의 통합 카드로 progressive disclosure" 수준의 전면 재설계는 이번에 하지 않았다. `App.tsx`가 2,979줄짜리 단일 컴포넌트이고 Case/Handover 관련 화면은 이미 상당히 성숙하고 테스트도 갖춰져 있어서(ADR-0004), 이걸 검증 없이 한 번에 갈아엎는 건 "일부만 완성된 상태로 두지 않는다"는 원칙에 어긋난다고 판단했다. 대신 **Monitor를 새 진입점으로 추가**하고 기존 Case 상세/Handover 화면은 그대로 두는 점진적 접근을 택했다 — Monitor→Investigate(기존 Case 상세)→Handover(기존 Handover 화면)라는 흐름 자체는 실제로 연결됐지만, Investigate 화면 내부의 "Hypothesis/Evidence/OpenItem 통합 카드화"는 후속 작업으로 남겨둔다.
+
+**검증**: `npm run typecheck`/`npm run build`/`npm test`(17개) 모두 통과, 실제 백엔드(causRCA 100개 실데이터)에 대해 `/detect` 호출 응답 확인.
 
 **목표**: Case/Handover/Hypothesis/Open Item을 각각의 메뉴로 노출하지 않고, 에이전트가 복잡성을 흡수한 3단계 흐름으로 재구성.
 

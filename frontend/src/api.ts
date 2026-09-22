@@ -346,6 +346,27 @@ export interface Health {
   status: string;
   llm_provider: string;
 }
+// AGENT_FAULT_DETECTION_PLAN.md Phase 3: mirrors backend FaultDetectionResult.
+export type DetectionDecision =
+  | "trigger_rca"
+  | "false_positive_review"
+  | "elevated_watch"
+  | "await_more_data";
+export interface DetectionResult {
+  incident_id: string;
+  observed_up_to_s: number;
+  onset_time_s: number | null;
+  anomaly_score: number | null;
+  anomaly_threshold: number | null;
+  decision: DetectionDecision;
+  evidence: Evidence[];
+  trace: Trace[];
+}
+export interface DetectResponse {
+  detection: DetectionResult;
+  investigation_id: string | null;
+  investigation: Investigation | null;
+}
 
 export async function api<T>(
   path: string,

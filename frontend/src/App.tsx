@@ -50,6 +50,7 @@ import type {
   HandoverFinding,
   StructuringProposal,
 } from "./api";
+import { Monitor } from "./Monitor";
 import { ShiftWorkspace } from "./ShiftWorkspace";
 import { describeHandoverDelta, snapshotEntities } from "./resume";
 import {
@@ -59,7 +60,14 @@ import {
 } from "./presentation";
 import { brand } from "./brand";
 
-type Page = "shift" | "workspace" | "cases" | "history" | "datasets" | "guide";
+type Page =
+  | "monitor"
+  | "shift"
+  | "workspace"
+  | "cases"
+  | "history"
+  | "datasets"
+  | "guide";
 type Tab = "signals" | "results" | "review" | "chat";
 type CaseInboxFilter = "all" | "action" | "handover" | "closed";
 type Saved = { id: string; incident: string; at: string };
@@ -195,7 +203,7 @@ function Timeline({
 }
 
 export default function App() {
-  const [page, setPage] = useState<Page>("shift");
+  const [page, setPage] = useState<Page>("monitor");
   const [tab, setTab] = useState<Tab>("signals");
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [health, setHealth] = useState<Health | null>(null);
@@ -738,6 +746,40 @@ export default function App() {
       setCaseBusy(false);
     }
   }
+  // AGENT_FAULT_DETECTION_PLAN.md Phase 3: Monitor가 사람 대신 이상 시작 시점을
+  // 찾아낸 뒤 호출한다. openCase()와 달리 사용자가 아직 사건을 "선택"하지
+  // 않은 상태(Monitor에서 바로 넘어옴)이므로 incident/cutoff부터 채운다.
+  async function openCaseFromDetection(incidentId: string, diagnosisTime: number) {
+    if (caseBusy) return;
+    setCaseBusy(true);
+    setActionError("");
+    try {
+      const detail = await api<Incident>(`/incidents/${encodeURIComponent(incidentId)}`);
+      setSelected(incidentId);
+      setIncident(detail);
+      setCutoff(diagnosisTime);
+      const created = await post<InvestigationCase>(
+        `/incidents/${encodeURIComponent(incidentId)}/cases`,
+        { diagnosis_time: diagnosisTime, question: "" },
+      );
+      const investigation = await api<Investigation>(
+        `/investigations/${encodeURIComponent(created.investigation_id)}`,
+      );
+      displayedCaseRunId.current = created.current_run_id;
+      replaceCase(created);
+      setCaseChat([]);
+      setRun(investigation);
+      setEvidenceId(investigation.evidence[0]?.id || "");
+      setPage("cases");
+      setNotice(
+        "Monitor 에이전트가 감지한 이상 시점을 기준으로 조사 사건을 자동으로 열었습니다.",
+      );
+    } catch (e) {
+      setActionError(message(e));
+    } finally {
+      setCaseBusy(false);
+    }
+  }
   async function respondToEvidenceTask(taskId: string) {
     if (!activeCase || !taskResponder.trim() || caseBusy) return;
     setCaseBusy(true);
@@ -1069,6 +1111,7 @@ export default function App() {
     "hypotheses",
   );
   const title = {
+    monitor: "Monitor",
     shift: "교대 워크스페이스",
     workspace: "조사 워크스페이스",
     cases: "Case 상세",
@@ -1099,7 +1142,7 @@ export default function App() {
           aria-label={`${brand.name} ${brand.koreanName} · 조사 홈`}
           onClick={(e) => {
             e.preventDefault();
-            setPage("shift");
+            setPage("monitor");
           }}
         >
           <span className="brand-symbol">
@@ -1119,6 +1162,7 @@ export default function App() {
         <nav aria-label="주 메뉴">
           {(
             [
+              { id: "monitor", label: "Monitor", icon: Activity },
               { id: "shift", label: "교대 워크스페이스", icon: Layers3 },
               { id: "cases", label: "Case 상세", icon: ListChecks },
               { id: "workspace", label: "새 사건 분석", icon: FileSearch },
@@ -1181,7 +1225,9 @@ export default function App() {
               <div className="eyebrow">INVESTIGATE WITH EVIDENCE</div>
               <h1>{title}</h1>
               <p>
-                {page === "shift"
+                {page === "monitor"
+                  ? "준비된 기록을 재생하며 에이전트가 이상 시작을 스스로 감지하고, 원인분석을 자동으로 트리거합니다."
+                  : page === "shift"
                   ? "이번 교대의 진행 중인 조사와 우선 확인할 일을 한눈에 봅니다."
                   : page === "workspace"
                   ? "흩어진 공정 신호를 연결하고, 다음에 확인할 근거를 찾으세요."
@@ -1217,6 +1263,7 @@ export default function App() {
             </div>
           )}
           {actionError && <ErrorBox text={actionError} />}
+          {page === "monitor" && <Monitor onOpenCase={openCaseFromDetection} />}
           {page === "shift" && (
             <ShiftWorkspace
               cases={cases}

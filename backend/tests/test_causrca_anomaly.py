@@ -69,6 +69,43 @@ def test_compute_anomaly_score_unavailable_without_a_prepared_baseline(
     assert any("baseline is unavailable" in warning for warning in warnings)
 
 
+def _recording_with_counter(recording_id: str, flow: float, cutting_time: float) -> dict:
+    """Like `_normal_recording`, but also carries a cumulative counter
+    (`Prog_CuttingTime`-style: only ever increases within one recording, and
+    its absolute value differs a lot recording to recording) that must be
+    excluded from the PCA feature space rather than dominate the score."""
+    record = _normal_recording(recording_id, flow)
+    record["observations"] += [
+        {"time_s": 0.0, "signal": "CuttingTime", "value": str(cutting_time), "kind": "Event"},
+        {"time_s": 5.0, "signal": "CuttingTime", "value": str(cutting_time + 1), "kind": "Event"},
+        {"time_s": 10.0, "signal": "CuttingTime", "value": str(cutting_time + 2), "kind": "Event"},
+    ]
+    return record
+
+
+def test_compute_anomaly_score_excludes_cumulative_counters_from_the_feature_space(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime_dir = tmp_path / "runtime"
+    monkeypatch.setenv("RUNTIME_DATA_DIR", str(runtime_dir))
+    # Every normal recording has a wildly different CuttingTime baseline (like
+    # real machine session history would), which would dominate SPE if kept.
+    normal = [
+        _recording_with_counter(f"rec_{i}", flow=100.0 + (i - 5) * 0.05, cutting_time=i * 50_000)
+        for i in range(10)
+    ]
+    _write_normal_baseline(runtime_dir, normal)
+
+    from app.analytics.causrca_anomaly import _get_baseline_model
+
+    model = _get_baseline_model()
+
+    assert model is not None
+    assert "CuttingTime" not in model.feature_names
+    assert "Flow" in model.feature_names
+    assert "Pressure" in model.feature_names
+
+
 def test_compute_anomaly_score_flags_a_value_far_outside_the_normal_baseline(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
