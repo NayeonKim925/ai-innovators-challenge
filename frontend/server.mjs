@@ -44,6 +44,7 @@ const API_ROUTE_ALLOWLIST = [
   { method: "GET", pattern: /^\/api\/incidents$/ },
   { method: "GET", pattern: /^\/api\/incidents\/[^/]+$/ },
   { method: "POST", pattern: /^\/api\/incidents\/[^/]+\/investigations$/ },
+  { method: "POST", pattern: /^\/api\/incidents\/[^/]+\/detect$/ },
   { method: "POST", pattern: /^\/api\/incidents\/[^/]+\/cases$/ },
   { method: "GET", pattern: /^\/api\/investigations\/[^/]+$/ },
   { method: "POST", pattern: /^\/api\/investigations\/[^/]+\/reviews$/ },
