@@ -2115,6 +2115,14 @@ export default function App() {
                             <strong>{displayText(activeCase.next_action)}</strong>
                           </div>
                           <div>
+                            <span>원인 후보 1위</span>
+                            <strong>{run?.candidates?.[0]?.signal ?? "없음"}</strong>
+                          </div>
+                          <div>
+                            <span>가설 판단 필요</span>
+                            <strong>{activeCase.hypotheses.filter((h) => h.judgment === "unreviewed").length}개</strong>
+                          </div>
+                          <div>
                             <span>확인 업무</span>
                             <strong>{activeCase.tasks.filter((task) => task.status === "pending").length}개 남음</strong>
                           </div>
@@ -2528,6 +2536,20 @@ export default function App() {
                             </div>
                           </section>
                         </section>
+                        <details
+                          className="collapsible-panel"
+                          open={activeCase.hypotheses.some((h) => h.judgment === "unreviewed")}
+                        >
+                          <summary>
+                            <span className="eyebrow">원인 가설 &amp; 분석 이력</span>
+                            <strong>
+                              가설 {activeCase.hypotheses.length}개
+                              {" · "}
+                              판단 필요 {activeCase.hypotheses.filter((h) => h.judgment === "unreviewed").length}개
+                              {" · "}
+                              Run {activeCase.analysis_runs.length}개
+                            </strong>
+                          </summary>
                         <section className="case-hypothesis-panel" aria-label="원인 가설">
                           <div className="section-heading">
                             <div>
@@ -2666,6 +2688,14 @@ export default function App() {
                               </ol>
                             </div>
                           </section>
+                        </details>
+                        <details className="collapsible-panel">
+                          <summary>
+                            <span className="eyebrow">Handover</span>
+                            <strong>
+                              {activeCase.handovers.length ? `Packet ${activeCase.handovers.length}개` : "아직 없음"}
+                            </strong>
+                          </summary>
                         <section className="case-handover-panel" aria-label="Handover">
                           <div className="section-heading">
                             <div>
@@ -2786,6 +2816,12 @@ export default function App() {
                             );
                           })()}
                         </section>
+                        </details>
+                        <details className="collapsible-panel">
+                          <summary>
+                            <span className="eyebrow">Case Q&amp;A</span>
+                            <strong>질문 {caseChat.length}개</strong>
+                          </summary>
                         <section className="case-chat-panel">
                           <div className="section-heading">
                             <div>
@@ -2826,6 +2862,12 @@ export default function App() {
                             </button>
                           </form>
                         </section>
+                        </details>
+                        <details className="collapsible-panel">
+                          <summary>
+                            <span className="eyebrow">Agent Run Ledger</span>
+                            <strong>실행 이력 {activeCase.events.length}건</strong>
+                          </summary>
                         <aside className="agent-ledger standalone">
                           <div className="section-heading">
                             <div>
@@ -2847,6 +2889,7 @@ export default function App() {
                             ))}
                           </ol>
                         </aside>
+                        </details>
                         {activeCase.status === "ready_for_review" && (
                           <section className="case-review-gate">
                             <div>
@@ -2889,19 +2932,24 @@ export default function App() {
                           </section>
                         )}
                         {activeCase.reviews.length > 0 && (
-                          <section className="case-review-history">
-                            <h3>최종 검토 이력</h3>
-                            {activeCase.reviews.map((review) => (
-                              <div key={`${review.reviewer}-${review.reviewed_at}`}>
-                                <strong>{review.reviewer}</strong>
-                                <span className={`badge ${review.decision === "approve" ? "teal" : "warning"}`}>
-                                  {review.decision === "approve" ? "승인" : "거절"}
-                                </span>
-                                <time>{new Date(review.reviewed_at).toLocaleString("ko-KR")}</time>
-                                <p>{review.comment || "별도 의견 없음"}</p>
-                              </div>
-                            ))}
-                          </section>
+                          <details className="collapsible-panel">
+                            <summary>
+                              <span className="eyebrow">최종 검토 이력</span>
+                              <strong>{activeCase.reviews.length}건</strong>
+                            </summary>
+                            <section className="case-review-history">
+                              {activeCase.reviews.map((review) => (
+                                <div key={`${review.reviewer}-${review.reviewed_at}`}>
+                                  <strong>{review.reviewer}</strong>
+                                  <span className={`badge ${review.decision === "approve" ? "teal" : "warning"}`}>
+                                    {review.decision === "approve" ? "승인" : "거절"}
+                                  </span>
+                                  <time>{new Date(review.reviewed_at).toLocaleString("ko-KR")}</time>
+                                  <p>{review.comment || "별도 의견 없음"}</p>
+                                </div>
+                              ))}
+                            </section>
+                          </details>
                         )}
                       </>
                     )}

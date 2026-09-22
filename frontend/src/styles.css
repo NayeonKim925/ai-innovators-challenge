@@ -182,7 +182,7 @@
 }
 .case-state-strip {
   display: grid;
-  grid-template-columns: minmax(250px, 1.7fr) repeat(3, minmax(130px, 1fr));
+  grid-template-columns: minmax(220px, 1.5fr) repeat(5, minmax(110px, 1fr));
   gap: 1px;
   padding: 20px 28px;
   background: #cfe0de;
@@ -3745,6 +3745,57 @@ tbody tr:last-child td {
 .case-overview-panel .resume-grid p { color: #314f55; font-size: 11px; margin: 5px 0 0; overflow-wrap: anywhere; }
 .case-overview-panel .resume-grid small { color: #809096; display: block; font-size: 9px; margin-top: 4px; overflow-wrap: anywhere; }
 .case-section-heading { margin-bottom: 14px; }
+/* Progressive disclosure for less-urgent Investigate sections (Hypothesis,
+   Handover, Q&A, run ledger, review history) -- see
+   AGENT_FAULT_DETECTION_PLAN.md Phase 3 follow-up. Overview/Todo stay
+   permanently expanded since they're "지금 해야 할 일". */
+.collapsible-panel {
+  border-bottom: 1px solid #dfe8e7;
+}
+.collapsible-panel > summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 24px;
+  cursor: pointer;
+  list-style: none;
+  color: var(--ink);
+}
+.collapsible-panel > summary::-webkit-details-marker,
+.collapsible-panel > summary::marker {
+  display: none;
+  content: "";
+}
+.collapsible-panel > summary::before {
+  content: "▸";
+  display: inline-block;
+  color: var(--teal);
+  margin-right: 10px;
+  font-size: 13px;
+  transition: transform 0.15s ease;
+}
+.collapsible-panel[open] > summary::before {
+  transform: rotate(90deg);
+}
+.collapsible-panel > summary .eyebrow {
+  display: block;
+  font-size: 10px;
+  font-weight: 650;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+.collapsible-panel > summary strong {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.collapsible-panel > section,
+.collapsible-panel > aside {
+  border-bottom: 0 !important;
+}
 .case-section-heading h3 { font-size: 16px; font-weight: 600; }
 .case-section-heading p { color: var(--muted); font-size: 11px; margin-top: 5px; }
 .state-editor-grid.single { grid-template-columns: minmax(0, 1fr); }
