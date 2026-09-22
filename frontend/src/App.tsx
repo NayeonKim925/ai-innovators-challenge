@@ -2284,6 +2284,100 @@ export default function App() {
                                 }) : <p className="muted">현재 Open Item이 없습니다.</p>}
                               </div>
                           </div>
+                          <section className="human-queue">
+                            <div className="section-heading">
+                              <div>
+                                <span className="eyebrow">HUMAN ACTION QUEUE</span>
+                                <h3>전문가 확인 업무</h3>
+                              </div>
+                              <UserRoundCheck size={21} />
+                            </div>
+                            {activeCase.tasks.map((task) => (
+                              <article
+                                className={`evidence-task ${task.status}`}
+                                key={task.id}
+                              >
+                                <div className="task-title">
+                                  <div>
+                                    <span className="task-role">
+                                      {task.requested_role === "operator"
+                                        ? "운영자"
+                                        : task.requested_role === "process_expert"
+                                          ? "공정 전문가"
+                                          : "설비 전문가"}
+                                    </span>
+                                    <h3>{task.title}</h3>
+                                  </div>
+                                  <span className={`badge ${task.status === "pending" ? "warning" : "teal"}`}>
+                                    {task.status === "pending" ? "응답 필요" : "응답 기록됨"}
+                                  </span>
+                                </div>
+                                <p>{task.instructions}</p>
+                                <div className="task-references">
+                                  {task.evidence_ids.length ? (
+                                    task.evidence_ids.map((id) => (
+                                      <button
+                                        key={id}
+                                        onClick={() => void showCaseRun(task.run_id, id)}
+                                      >
+                                        근거 {id} · {shortId(task.run_id || activeCase.current_run_id || "legacy")}
+                                      </button>
+                                    ))
+                                  ) : (
+                                    <span>추가 관측 요청 · 분석 trace 2–3단계</span>
+                                  )}
+                                </div>
+                                {task.status === "completed" && task.response ? (
+                                  <div className="task-response">
+                                    <strong>{task.response.responder}</strong>
+                                    <span>{task.response.outcome === "confirmed" ? "확인 가능" : task.response.outcome === "refuted" ? "근거 불일치" : "확인 불가"}</span>
+                                    <p>{task.response.comment || "별도 의견 없음"}</p>
+                                  </div>
+                                ) : (
+                                  <div className="task-form">
+                                    <label>
+                                      응답자
+                                      <input
+                                        value={taskResponder}
+                                        onChange={(event) => setTaskResponder(event.target.value)}
+                                        placeholder="이름 또는 담당자 ID"
+                                        maxLength={120}
+                                      />
+                                    </label>
+                                    <label>
+                                      확인 결과
+                                      <select
+                                        value={taskOutcome}
+                                        onChange={(event) => setTaskOutcome(event.target.value as ExpertResponseOutcome)}
+                                      >
+                                        <option value="confirmed">근거 확인 가능</option>
+                                        <option value="refuted">근거 불일치</option>
+                                        <option value="unavailable">현재 확인 불가</option>
+                                      </select>
+                                    </label>
+                                    <label className="task-form-note">
+                                      관찰 또는 문서 위치
+                                      <textarea
+                                        value={taskComment}
+                                        onChange={(event) => setTaskComment(event.target.value)}
+                                        placeholder="확인한 관측값, 문서 위치 또는 확인하지 못한 이유를 남겨 주세요."
+                                        maxLength={2000}
+                                        rows={3}
+                                      />
+                                    </label>
+                                    <button
+                                      className="button primary"
+                                      disabled={!taskResponder.trim() || caseBusy}
+                                      onClick={() => void respondToEvidenceTask(task.id)}
+                                    >
+                                      {caseBusy ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}
+                                      응답 기록
+                                    </button>
+                                  </div>
+                                )}
+                              </article>
+                            ))}
+                          </section>
                           <section className="structuring-panel" aria-label="AI 메모 구조화 제안">
                             <div className="section-heading">
                               <div>
@@ -2685,123 +2779,27 @@ export default function App() {
                             </button>
                           </form>
                         </section>
-                        <div className="case-content-grid">
-                          <section className="human-queue">
-                            <div className="section-heading">
-                              <div>
-                                <span className="eyebrow">HUMAN ACTION QUEUE</span>
-                                <h3>전문가 확인 업무</h3>
-                              </div>
-                              <UserRoundCheck size={21} />
+                        <aside className="agent-ledger standalone">
+                          <div className="section-heading">
+                            <div>
+                              <span className="eyebrow">AGENT RUN LEDGER</span>
+                              <h3>실행 및 판단 이력</h3>
                             </div>
-                            {activeCase.tasks.map((task) => (
-                              <article
-                                className={`evidence-task ${task.status}`}
-                                key={task.id}
-                              >
-                                <div className="task-title">
-                                  <div>
-                                    <span className="task-role">
-                                      {task.requested_role === "operator"
-                                        ? "운영자"
-                                        : task.requested_role === "process_expert"
-                                          ? "공정 전문가"
-                                          : "설비 전문가"}
-                                    </span>
-                                    <h3>{task.title}</h3>
-                                  </div>
-                                  <span className={`badge ${task.status === "pending" ? "warning" : "teal"}`}>
-                                    {task.status === "pending" ? "응답 필요" : "응답 기록됨"}
-                                  </span>
+                            <Activity size={20} />
+                          </div>
+                          <ol>
+                            {activeCase.events.map((event) => (
+                              <li key={event.sequence}>
+                                <span>{String(event.sequence).padStart(2, "0")}</span>
+                                <div>
+                                  <strong>{displayCaseEventType(event.event_type)}</strong>
+                                  <p>{displayCaseEventDetail(event.detail)}</p>
+                                  <small>{event.actor === "expert" ? "전문가 입력" : "오케스트레이터"} · {new Date(event.created_at).toLocaleString("ko-KR")}</small>
                                 </div>
-                                <p>{task.instructions}</p>
-                                <div className="task-references">
-                                  {task.evidence_ids.length ? (
-                                    task.evidence_ids.map((id) => (
-                                      <button
-                                        key={id}
-                                        onClick={() => void showCaseRun(task.run_id, id)}
-                                      >
-                                        근거 {id} · {shortId(task.run_id || activeCase.current_run_id || "legacy")}
-                                      </button>
-                                    ))
-                                  ) : (
-                                    <span>추가 관측 요청 · 분석 trace 2–3단계</span>
-                                  )}
-                                </div>
-                                {task.status === "completed" && task.response ? (
-                                  <div className="task-response">
-                                    <strong>{task.response.responder}</strong>
-                                    <span>{task.response.outcome === "confirmed" ? "확인 가능" : task.response.outcome === "refuted" ? "근거 불일치" : "확인 불가"}</span>
-                                    <p>{task.response.comment || "별도 의견 없음"}</p>
-                                  </div>
-                                ) : (
-                                  <div className="task-form">
-                                    <label>
-                                      응답자
-                                      <input
-                                        value={taskResponder}
-                                        onChange={(event) => setTaskResponder(event.target.value)}
-                                        placeholder="이름 또는 담당자 ID"
-                                        maxLength={120}
-                                      />
-                                    </label>
-                                    <label>
-                                      확인 결과
-                                      <select
-                                        value={taskOutcome}
-                                        onChange={(event) => setTaskOutcome(event.target.value as ExpertResponseOutcome)}
-                                      >
-                                        <option value="confirmed">근거 확인 가능</option>
-                                        <option value="refuted">근거 불일치</option>
-                                        <option value="unavailable">현재 확인 불가</option>
-                                      </select>
-                                    </label>
-                                    <label className="task-form-note">
-                                      관찰 또는 문서 위치
-                                      <textarea
-                                        value={taskComment}
-                                        onChange={(event) => setTaskComment(event.target.value)}
-                                        placeholder="확인한 관측값, 문서 위치 또는 확인하지 못한 이유를 남겨 주세요."
-                                        maxLength={2000}
-                                        rows={3}
-                                      />
-                                    </label>
-                                    <button
-                                      className="button primary"
-                                      disabled={!taskResponder.trim() || caseBusy}
-                                      onClick={() => void respondToEvidenceTask(task.id)}
-                                    >
-                                      {caseBusy ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}
-                                      응답 기록
-                                    </button>
-                                  </div>
-                                )}
-                              </article>
+                              </li>
                             ))}
-                          </section>
-                          <aside className="agent-ledger">
-                            <div className="section-heading">
-                              <div>
-                                <span className="eyebrow">AGENT RUN LEDGER</span>
-                                <h3>실행 및 판단 이력</h3>
-                              </div>
-                              <Activity size={20} />
-                            </div>
-                            <ol>
-                              {activeCase.events.map((event) => (
-                                <li key={event.sequence}>
-                                  <span>{String(event.sequence).padStart(2, "0")}</span>
-                                  <div>
-                                    <strong>{displayCaseEventType(event.event_type)}</strong>
-                                    <p>{displayCaseEventDetail(event.detail)}</p>
-                                    <small>{event.actor === "expert" ? "전문가 입력" : "오케스트레이터"} · {new Date(event.created_at).toLocaleString("ko-KR")}</small>
-                                  </div>
-                                </li>
-                              ))}
-                            </ol>
-                          </aside>
-                        </div>
+                          </ol>
+                        </aside>
                         {activeCase.status === "ready_for_review" && (
                           <section className="case-review-gate">
                             <div>
