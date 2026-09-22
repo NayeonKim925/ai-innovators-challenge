@@ -15,7 +15,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["httpx>=0.28,<1", "pytest>=8.3,<9", "ruff>=0.9,<1"]
+# numpy/scipy are required here (not just in causrca/metal-etch) because
+# backend/tests/conftest.py imports them unconditionally for the synthetic
+# .mat fixture, so pytest collection fails without them even for unrelated tests.
+dev = ["httpx>=0.28,<1", "pytest>=8.3,<9", "ruff>=0.9,<1", "numpy>=2.0,<3", "scipy>=1.14,<2", "scikit-learn>=1.5,<2"]
 # Required only for the pinned upstream CausTR benchmark, never for the API fallback.
 causrca = [
   "networkx>=3.2,<4",
