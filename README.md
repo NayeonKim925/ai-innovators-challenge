@@ -27,8 +27,9 @@ Continuum은 **제조 이상 조사·교대 연속성 워크스페이스**입니
 - **Shift Workspace:** 담당자·보기 필터(조치 필요/인수 대기/내 Open Item/최신화 필요) 기준으로 Case를 우선순위 정렬하고, 현재 Run의 RCA 후보를 확인한 뒤 Case 상세로 바로 진입
 - **Open Item·Hypothesis 항목별 관리 UI:** Case 상세에서 Open Item의 담당자·상태·보류 사유·완료 메모, Hypothesis의 지지/지지하지 않음/근거 부족/미검토 판단과 이유를 각각 독립적으로 기록
 - **Proposal-only Context Structuring:** 교대 메모를 Observation/Open Item/Hypothesis 제안으로 만들고, 작성자 검토·수정·수락 후에만 Case에 반영
+- **Case Workspace 화면 재배치:** [UX 개편안](docs/CONTINUUM_UX_REDESIGN_PROPOSAL.md) 4.1~4.6 순서(Overview→연속성→해야 할 일→원인 가설→분석 이력→Handover)대로 Case 상세 구현, Backend 계약·API는 변경 없음
 
-**남은 주요 작업:** Shift Workspace의 다중 Case 필터·정렬 UX 고도화, 실제 사내 인증 공급자·조직 scope 연동, Case Q&A의 근거 인용·평가 고도화, Case Memory/RAG, 실시간 설비 데이터 연결, production 수준의 DynamoDB 구조·운영 검증. Case 화면의 정보 우선순위를 업무 흐름(Overview→연속성→해야 할 일→원인 가설→분석 이력→Handover) 중심으로 재배치하는 [UX 개편안](docs/CONTINUUM_UX_REDESIGN_PROPOSAL.md)은 팀 논의 중이며 아직 전체 확정·구현되지 않았습니다. **AI Handover Draft와 AI Shift Brief는 향후 계획**이며 현재 기능이 아닙니다. 현재 진행 중인 단계와 완료 기준은 [다음 개발 계획](docs/NEXT_DEVELOPMENT_PLAN.md)에서, 그 이전 전환 배경은 [전환 계획](docs/CONTINUUM_DEVELOPMENT_PLAN.md)과 [트러블슈팅](docs/CONTINUUM_TROUBLESHOOTING.md)에서 확인합니다.
+**남은 주요 작업:** Shift Workspace의 다중 Case 필터·정렬 UX 고도화, 실제 사내 인증 공급자·조직 scope 연동, Case Q&A의 근거 인용·평가 고도화, Case Memory/RAG, 실시간 설비 데이터 연결, production 수준의 DynamoDB 구조·운영 검증. UX 개편안의 나머지 논의 항목(Shift 화면 역할, 첫 진입 화면 등)은 아직 팀 논의 중입니다. **AI Handover Draft와 AI Shift Brief는 향후 계획**이며 현재 기능이 아닙니다. 현재 진행 중인 단계와 완료 기준은 [다음 개발 계획](docs/NEXT_DEVELOPMENT_PLAN.md)에서, 그 이전 전환 배경은 [전환 계획](docs/CONTINUUM_DEVELOPMENT_PLAN.md)과 [트러블슈팅](docs/CONTINUUM_TROUBLESHOOTING.md)에서 확인합니다.
 
 UI 의사결정 원본은 [DESIGN.md](DESIGN.md), 실행 및 프록시 보안 경계는 [프론트 가이드](frontend/README.md)에 있습니다. 외부 레퍼런스 캡처와 에이전트 작업 상태는 로컬 작업 산출물로 저장소에 포함하지 않습니다.
 

@@ -35,7 +35,7 @@ RCA Run R1
 - LLM Context Structuring, AI Handover Draft는 아직 authoritative 기능으로 구현하지 않음(P2 진행)
 - Case Memory/RAG(P3)는 아직 설계 문서만 있음
 - 실제 DynamoDB 운영 크기·CI 실행·배포 검증이 남아 있음(P4)
-- Case Workspace 화면의 정보 우선순위 재배치는 [UX 개편안](CONTINUUM_UX_REDESIGN_PROPOSAL.md)으로 제안된 상태이며 팀 논의 후 확정 전까지 미구현
+- Case Workspace 화면의 정보 우선순위 재배치는 [UX 개편안](CONTINUUM_UX_REDESIGN_PROPOSAL.md) 4.1~4.6 순서대로 구현 완료(main). 첫 진입 화면, Shift 화면 역할 등 나머지 논의 항목은 팀 논의 후 결정 예정
 
 ## 2. 우선순위 원칙
 

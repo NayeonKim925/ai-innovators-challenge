@@ -1,5 +1,7 @@
 # Continuum 사용자 흐름 및 Case Workspace UX 개편 기획안
 
+> **구현 상태 (2026-09-22):** 4장의 Case Workspace 구조(4.1 Overview ~ 4.6 Handover)는 main에 구현 완료됐다. 화면 순서·용어만 바꿨고 6장에서 변경 금지로 명시한 domain/API는 그대로다. 5장(Shift 화면 역할)과 10장(첫 진입 화면 등 팀 논의 사항)은 아직 결정되지 않았다.
+
 ## 1. 기획 목적
 
 현재 Continuum에는 Case Continuity를 구현하기 위한 주요 기능이 이미 존재한다.
