@@ -252,6 +252,7 @@ test("proxies the case-orchestration API contract", async () => {
             { method: "GET", path: "/api/cases/case-1" },
             { method: "GET", path: "/api/cases/case-1/structuring-proposals" },
             { method: "POST", path: "/api/incidents/1/cases" },
+            { method: "POST", path: "/api/incidents/1/detect" },
             { method: "POST", path: "/api/cases/case-1/structuring-proposals" },
             {
               method: "POST",

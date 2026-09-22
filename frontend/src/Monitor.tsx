@@ -18,6 +18,7 @@ import {
   type Incident,
   type IncidentSummary,
 } from "./api";
+import { displayText } from "./presentation";
 
 const message = (e: unknown) =>
   e instanceof Error ? e.message : "요청을 처리하지 못했습니다.";
@@ -268,8 +269,8 @@ export function Monitor({
             <ul className="monitor-evidence">
               {detection.detection.evidence.map((e) => (
                 <li key={e.id}>
-                  <strong>{e.title}</strong>
-                  <p>{e.detail}</p>
+                  <strong>{displayText(e.title)}</strong>
+                  <p>{displayText(e.detail)}</p>
                 </li>
               ))}
             </ul>
@@ -281,7 +282,7 @@ export function Monitor({
               <ol>
                 {detection.investigation.candidates.slice(0, 3).map((c) => (
                   <li key={c.signal}>
-                    <strong>{c.signal}</strong> — {c.reason}
+                    <strong>{c.signal}</strong> — {displayText(c.reason)}
                   </li>
                 ))}
               </ol>

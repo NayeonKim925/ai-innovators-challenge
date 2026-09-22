@@ -31,6 +31,17 @@ const labels: Record<string, string> = {
     "담당 전문가가 근거와 연결된 후보를 명시적으로 승인 또는 거절해야 합니다.",
   "No root-cause candidate is asserted. Reopen with newly observed runtime data if available.":
     "원인 후보를 주장하지 않습니다. 새 런타임 관측이 있을 때만 사건을 재개합니다.",
+  // AGENT_FAULT_DETECTION_PLAN.md Phase 1/2 evidence sources (analytics/fault_onset.py,
+  // analytics/causrca_anomaly.py) and the previously-untranslated CausTR path
+  // (analytics/causrca.py) -- these are shown verbatim on the Monitor screen.
+  "Alarm-activation fault-onset estimator (observed data only)":
+    "알람 활성화 기반 fault 시작 시점 추정기 (관측 데이터만 사용)",
+  "Deterministic PCA baseline fit on prepared causRCA real_op runtime data":
+    "준비된 causRCA 정상 운전(real_op) 데이터로 학습한 결정론적 PCA 기준선",
+  "CausTR ranked this observable signal using the runtime expert graph and pre-cutoff observations. It remains an investigation candidate, not a confirmed cause.":
+    "CausTR이 전문가 인과그래프와 진단 시점 이전 관측값을 이용해 이 신호의 순위를 매겼습니다. 조사할 후보이며 확정된 원인은 아닙니다.",
+  "diagnosis_time was set automatically by the fault-detection agent from the earliest observed active alarm, not chosen by a human.":
+    "진단 시점은 사람이 지정한 것이 아니라, 탐지 에이전트가 관측된 알람 중 가장 이른 활성화 시각을 기준으로 자동 지정했습니다.",
   "Case closed with an explicit expert review. The candidate remains evidence-linked, not an automated control decision.":
     "전문가의 명시적 검토로 사건을 종료했습니다. 후보는 근거와 연결된 조사 대상이며 자동 제어 판단이 아닙니다.",
 };
@@ -62,14 +73,36 @@ const responseOutcomeLabels: Record<string, string> = {
 };
 export function displayText(value: string): string {
   if (labels[value]) return labels[value];
-  if (value.startsWith("Active alarm: "))
-    return `활성 알람: ${value.slice(14)}`;
+  const activeAlarm = /^Active alarm: (.+)$/.exec(value);
+  if (activeAlarm) return `활성 알람: ${activeAlarm[1]}`;
+  const earliestAlarm = /^Earliest active alarm: (.+)$/.exec(value);
+  if (earliestAlarm) return `최초 활성 알람: ${earliestAlarm[1]}`;
+  const causTrSignal = /^CausTR candidate signal: (.+)$/.exec(value);
+  if (causTrSignal) return `CausTR 후보 신호: ${causTrSignal[1]}`;
+  const deviationTitle =
+    /^Deviation from normal-operation baseline \(largest contributor: (.+)\)$/.exec(
+      value,
+    );
+  if (deviationTitle)
+    return `정상 운전 기준선 대비 이상 (최대 기여 신호: ${deviationTitle[1]})`;
   const observation =
     /^At t=([\d.]+)s, (.+) reported (.+) before the diagnosis cutoff\.$/.exec(
       value,
     );
   if (observation)
     return `진단 시점 이전 ${observation[1]}초에 ${observation[2]} 신호에서 ${observation[3]} 값이 관측되었습니다.`;
+  const onsetDetail =
+    /^At t=([\d.]+)s, (.+) became active\. This is the earliest observable signal of a problem, not a confirmed fault start -- the underlying cause may have begun earlier than any alarm fired\.$/.exec(
+      value,
+    );
+  if (onsetDetail)
+    return `t=${onsetDetail[1]}초에 ${onsetDetail[2]}이(가) 활성화됐습니다. 이는 관측 가능한 최초 이상 징후일 뿐, 확정된 fault 시작 시점은 아닙니다 — 실제 원인은 이보다 먼저 시작됐을 수 있습니다.`;
+  const anomalyDetail =
+    /^Reconstruction error \(SPE\)=(.+) vs\. normal-operation baseline \(typical=(.+), elevated threshold=(.+)\)\. (.+) contributed the most to this deviation\.$/.exec(
+      value,
+    );
+  if (anomalyDetail)
+    return `재구성 오차(SPE)=${anomalyDetail[1]} (정상 운전 기준선 평균=${anomalyDetail[2]}, 이상 판단 임계값=${anomalyDetail[3]}). ${anomalyDetail[4]} 신호가 이 편차에 가장 크게 기여했습니다.`;
   return value;
 }
 
