@@ -94,6 +94,21 @@
 
 **검증**: `npm run typecheck`/`npm run build`/`npm test`(17개) 모두 통과, 실제 백엔드(causRCA 100개 실데이터)에 대해 `/detect` 호출 응답 확인.
 
+## 6. Investigate 화면 통합 1차 (완료, 2026-09-22)
+
+Case 상세 화면(5절에서 "후속 작업"으로 남겨뒀던 부분)에 progressive disclosure를 적용했다. Case/Handover/Hypothesis/Open Item 도메인·API는 전혀 건드리지 않고, 화면에 이미 있던 섹션들을 `<details>`/`<summary>`(네이티브 접기·펼치기, DESIGN.md 접근성 원칙에 맞음)로 감쌌다:
+
+- **항상 펼쳐짐** (지금 해야 할 일): Overview, 연속성(인계 비교), Open Item·전문가 확인 업무·AI 메모 제안 — 사람이 매번 봐야 하는 것들.
+- **조건부 기본 펼침**: 원인 가설 & Analysis Run — 판단 안 된(unreviewed) 가설이 하나라도 있으면 펼쳐짐, 없으면 접힘.
+- **기본 접힘**: Handover, Case Q&A, Agent Run Ledger(실행 이력), 최종 검토 이력 — 필요할 때만 열어보는 것들.
+- **항상 펼쳐짐, 조건부 렌더**: 최종 검토 게이트(`case-review-gate`)는 `ready_for_review` 상태일 때만 나타나고 접히지 않는다 — 실제 액션이 필요한 상태라 숨기면 안 됨.
+
+또한 상단 `case-state-strip` 요약 띠에 **원인 후보 1위**와 **가설 판단 필요 개수** 두 타일을 추가해, 에이전트가 무엇을 찾았는지가 스크롤 없이 바로 보이게 했다.
+
+**검증**: 실제 causRCA 데이터로 사건을 열어 Playwright로 직접 화면을 렌더링·스크린샷 확인 — 요약 띠 6개 타일 정상 표시, "원인 가설 & 분석 이력" 섹션이 미검토 가설 존재 시 자동으로 펼쳐짐, Handover/Case Q&A 섹션이 접힌 채로 시작해 클릭 시 정상 토글됨을 확인. `npm run build`/`npm test`(17개) 통과.
+
+**여전히 안 한 것**: Hypothesis/Evidence/OpenItem을 물리적으로 하나의 카드 컴포넌트로 병합하지는 않았다 — 지금은 "같은 페이지 안에서 접고 펼 수 있는 여러 섹션"이다. 완전한 카드 통합(하나의 `<InvestigationSummary>` 컴포넌트로 데이터 자체를 재구성)은 App.tsx 리팩터링이 필요한 더 큰 작업이라 후속 과제로 남긴다.
+
 **목표**: Case/Handover/Hypothesis/Open Item을 각각의 메뉴로 노출하지 않고, 에이전트가 복잡성을 흡수한 3단계 흐름으로 재구성.
 
 - **Monitor**: 재생 시뮬레이터 진행바(배속 조절), 현재 tick까지의 관측 요약, 탐지 에이전트 상태 배지("관찰 중" / "알람 감지, 검토 중" / "이상 확정, RCA 실행"). "준비된 HIL 기록의 재생 시뮬레이션"임을 항상 명시 (DESIGN.md 신뢰 신호 원칙).
