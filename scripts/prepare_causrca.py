@@ -134,15 +134,30 @@ def prepare(source: Path, runtime_root: Path, evaluation_root: Path) -> dict[str
             }
         )
 
+    # AGENT_FAULT_DETECTION_PLAN.md Phase 2: normal_op recordings carry no fault
+    # label at all (no causes.json/description.json sits beside them), so unlike
+    # fault_paths above there is nothing to split into evaluation-only fields --
+    # the full recording is safe as a runtime PCA-baseline artifact.
+    normal_baseline: list[dict[str, Any]] = [
+        {"recording_id": recording.stem, "observations": read_observations(recording)}
+        for recording in normal_paths
+    ]
+    normal_baseline.sort(key=lambda item: item["recording_id"])
+
     runtime_incidents.sort(key=lambda item: item["id"])
     evaluation_cases.sort(key=lambda item: item["case_id"])
     write_json(runtime_root / "causrca" / "incidents.json", runtime_incidents)
+    write_json(runtime_root / "causrca" / "normal_baseline.json", normal_baseline)
     graph_source = dataset / "expert_graph" / "expert_graph.gml"
     graph_target = runtime_root / "causrca" / "expert_graph.gml"
     graph_target.parent.mkdir(parents=True, exist_ok=True)
     graph_target.write_bytes(graph_source.read_bytes())
     write_json(evaluation_root / "causrca" / "cases.json", evaluation_cases)
-    return {"runtime_incidents": len(runtime_incidents), "evaluation_cases": len(evaluation_cases), "normal_records_verified": len(normal_paths)}
+    return {
+        "runtime_incidents": len(runtime_incidents),
+        "evaluation_cases": len(evaluation_cases),
+        "normal_baseline_recordings": len(normal_baseline),
+    }
 
 
 def main() -> None:

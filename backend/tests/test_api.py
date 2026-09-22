@@ -1,8 +1,17 @@
 from pathlib import Path
 
+import pytest
+from app.analytics import causrca_anomaly
 from app.data.runtime_repository import JsonRuntimeRepository
 from app.main import create_app
 from fastapi.testclient import TestClient
+
+
+@pytest.fixture(autouse=True)
+def _clear_causrca_anomaly_model_cache():
+    causrca_anomaly._MODEL_CACHE.clear()
+    yield
+    causrca_anomaly._MODEL_CACHE.clear()
 
 
 def _client_with_prepared_incident(tmp_path: Path) -> TestClient:
@@ -34,7 +43,13 @@ def test_api_lists_and_investigates_runtime_incident(tmp_path: Path) -> None:
     assert isinstance(body["investigation_id"], str) and body["investigation_id"]
 
 
-def test_api_detects_fault_onset_and_auto_triggers_investigation(tmp_path: Path) -> None:
+def test_api_detects_fault_onset_and_auto_triggers_investigation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # No normal_baseline.json exists under tmp_path, so the PCA anomaly signal
+    # stays unavailable and the alarm-only Phase 1 branch decides alone --
+    # isolated from whatever `data/runtime/causrca/` this machine happens to have.
+    monkeypatch.setenv("RUNTIME_DATA_DIR", str(tmp_path))
     client = _client_with_prepared_incident(tmp_path)
 
     result = client.post(
@@ -51,7 +66,10 @@ def test_api_detects_fault_onset_and_auto_triggers_investigation(tmp_path: Path)
     assert body["investigation"]["candidates"][0]["signal"] == "P101"
 
 
-def test_api_detect_awaits_more_data_before_any_alarm(tmp_path: Path) -> None:
+def test_api_detect_awaits_more_data_before_any_alarm(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("RUNTIME_DATA_DIR", str(tmp_path))
     client = _client_with_prepared_incident(tmp_path)
 
     result = client.post(

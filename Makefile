@@ -1,4 +1,4 @@
-.PHONY: install api frontend frontend-react test lint bootstrap-causrca prepare-causrca validate-data benchmark-causrca benchmark-fault-onset
+.PHONY: install api frontend frontend-react test lint bootstrap-causrca prepare-causrca validate-data benchmark-causrca benchmark-fault-onset benchmark-false-positive
 
 install:
 	python -m pip install -e '.[dev]'
@@ -34,3 +34,6 @@ benchmark-causrca:
 
 benchmark-fault-onset:
 	python -m evals.run_fault_onset_benchmark
+
+benchmark-false-positive:
+	python -m evals.run_false_positive_benchmark

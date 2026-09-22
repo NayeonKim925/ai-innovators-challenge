@@ -323,7 +323,18 @@ class FaultDetectionResult(BaseModel):
     ``decision`` records what the agent chose to do next given the observed
     signals -- it never asserts a confirmed fault, only that enough evidence
     exists to hand off to root-cause ranking, or that observation should
-    continue.
+    continue. Phase 2 adds a second, independent signal (PCA anomaly score
+    against a normal-operation baseline) alongside Phase 1's alarm-activation
+    onset, so ``decision`` now has four possible values instead of two:
+
+    - ``trigger_rca``: an alarm is active and (if computed) the anomaly score
+      corroborates it -- hand off to root-cause ranking.
+    - ``false_positive_review``: an alarm is active but the anomaly score is
+      still within the normal-operation range -- a human should check for a
+      possible false alarm before ranking causes.
+    - ``elevated_watch``: no alarm yet, but the anomaly score already exceeds
+      the normal-operation range -- keep observing more closely.
+    - ``await_more_data``: neither signal indicates a problem yet.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -331,8 +342,10 @@ class FaultDetectionResult(BaseModel):
     incident_id: str
     observed_up_to_s: float = Field(ge=0)
     onset_time_s: float | None = None
-    decision: Literal["trigger_rca", "await_more_data"]
-    evidence: Evidence | None = None
+    anomaly_score: float | None = None
+    anomaly_threshold: float | None = None
+    decision: Literal["trigger_rca", "false_positive_review", "elevated_watch", "await_more_data"]
+    evidence: list[Evidence] = Field(default_factory=list)
     trace: list[TraceEvent]
 
 

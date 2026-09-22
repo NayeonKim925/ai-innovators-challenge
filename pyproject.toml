@@ -30,9 +30,11 @@ causrca = [
   "tqdm>=4.66,<5",
 ]
 # Required only for the Metal Etch PCA baseline (analytics/metal_etch_pca.py and
-# data/metal_etch_adapter.py). rank_with_pca_contribution() checks
-# _SKLEARN_AVAILABLE and falls back to a declared-baseline warning when these
-# are not installed, so they are never required for the API or the causRCA path.
+# data/metal_etch_adapter.py) AND the causRCA PCA anomaly-score signal
+# (analytics/causrca_anomaly.py, AGENT_FAULT_DETECTION_PLAN.md Phase 2) -- both
+# use the same numpy/scikit-learn stack. Each checks _SKLEARN_AVAILABLE and
+# falls back to a declared warning when these are not installed, so neither is
+# ever required for the API's alarm-only fallback path.
 metal-etch = [
   "numpy>=2.0,<3",
   "scipy>=1.14,<2",

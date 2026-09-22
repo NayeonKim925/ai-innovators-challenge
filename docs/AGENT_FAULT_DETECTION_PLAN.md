@@ -64,7 +64,14 @@
 - 평가: `evals/run_causrca_benchmark.py`에 "탐지 정확도" 지표 추가 — 이때만 `data/evaluation/causrca/cases.json`에 `cause_start_at`을 추가로 채워 넣어(현재 안 뽑고 있음) 추정 onset과 비교(MAE, ±N초 적중률).
 - 테스트: (a) 알람 여러 개/없음/컷오프 이후만 있는 경우 단위 테스트, (b) 라벨 누출 테스트 — runtime 경로 어디서도 `cause_start_at`을 읽지 않는지 확인.
 
-## 4. Phase 2 — PCA 이상신호 + 에이전트 의사결정 레이어
+## 4. Phase 2 — PCA 이상신호 + 에이전트 의사결정 레이어 (완료, 2026-09-22)
+
+**실제 결과 (causRCA 100 fault + 170 normal 전체 실행)**:
+- `full_trigger_false_positive_rate` = **0%** (170개 정상 기록 전부에서 `trigger_rca`로 자동 오픈된 사례 없음 — 두 신호가 불일치할 때 자동 실행을 보류하는 4방향 판단이 실제로 작동)
+- `any_false_positive_rate` ≈ 5.3% (`elevated_watch` 포함, PCA 임계값을 baseline 자체의 p95로 잡았을 때 통계적으로 예상되는 수준)
+- fault 100건에 대한 alarm 기반 탐지는 Phase 1 결과(100% 탐지, lag 평균 24.3초)와 동일 — PCA는 alarm이 없을 때의 조기경보(elevated_watch) 및 alarm 있을 때의 오탐 검증(false_positive_review) 역할을 추가로 담당.
+
+**구현 중 발견한 스키마 제약**: `Observation.kind`는 `Alarm/Measurement/Event` 세 값만 허용하는데, `scripts/prepare_causrca.py::read_observations`가 causRCA 원본의 `Binary/Continuous/Counter/Categorical` 타입 구분을 전부 `Event`로 뭉개버리고 있었다(Alarm만 보존). 그래서 PCA 인코딩은 `kind`가 아니라 **값 자체의 모양**(숫자로 파싱되는지, true/false 문자열인지)으로 인코딩 가능 여부를 판단하도록 구현했다 — `causrca_anomaly.py` 모듈 docstring에 상세 기록.
 
 **목표**: 알람이 아직 안 뜬 "전조 단계"도 잡아내는 두 번째 신호를 추가하고, 두 신호를 사람이 아니라 에이전트가 종합 판단하게 한다.
 
