@@ -438,9 +438,10 @@ test("Same Case adds R2 while R1 evidence links remain run scoped", async ({ pag
   await page.getByRole("button", { name: "Case 상세" }).click();
   await expect(page.getByText("R1", { exact: true })).toBeVisible();
   await expect(page.getByText("R2", { exact: true })).toBeVisible();
-  const stateEditor = page.getByRole("region", { name: "조사 상태 업데이트" });
-  const openItems = stateEditor.locator(".state-editor-column").first().locator(".state-editor-card");
-  const hypotheses = stateEditor.locator(".state-editor-column").nth(1).locator(".state-editor-card");
+  const todoPanel = page.getByRole("region", { name: "해야 할 일" });
+  const hypothesisPanel = page.getByRole("region", { name: "원인 가설" });
+  const openItems = todoPanel.locator(".state-editor-column").locator(".state-editor-card");
+  const hypotheses = hypothesisPanel.locator(".state-editor-column").locator(".state-editor-card");
   await expect(openItems.first()).toContainText("분석 R1 · run_1");
   await expect(openItems.nth(1)).toContainText("분석 R2 · run_2");
   await hypotheses.first().getByLabel("판단 근거").fill("추가 관측과 일치하지 않음");

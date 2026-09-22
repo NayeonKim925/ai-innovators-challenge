@@ -2087,14 +2087,12 @@ export default function App() {
                             <p>{displayText(activeCase.next_action)}</p>
                           </div>
                         </div>
-                        <section className="case-handover-panel">
+                        <section className="case-overview-panel" aria-label="지금 이 Case 상태">
                           <div className="section-heading">
                             <div>
-                              <span className="eyebrow">CONTINUUM RESUME</span>
-                              <h3>교대 인수인계 워크스페이스</h3>
-                              <p>
-                                Case {shortId(activeCase.id)} · 버전 {activeCase.version} · 인수와 조사 종료는 별도 상태입니다.
-                              </p>
+                              <span className="eyebrow">OVERVIEW</span>
+                              <h3>지금 이 Case는 어떤 상태인가</h3>
+                              <p>Case {shortId(activeCase.id)} · 버전 {activeCase.version} · 인수와 조사 종료는 별도 상태입니다.</p>
                             </div>
                             <RefreshCw size={21} />
                           </div>
@@ -2127,91 +2125,18 @@ export default function App() {
                               <p>{(resume?.open_items || activeCase.open_items).filter((item) => item.status !== "resolved").length}개 · 인계 대상</p>
                             </div>
                           </div>
-                          <section className="analysis-run-panel" aria-label="Analysis Run 추가 및 이력">
-                            <div className="analysis-run-controls">
-                              <div>
-                                <span className="eyebrow">SAME CASE ANALYSIS</span>
-                                <h4>더 늦은 시점으로 분석 이어가기</h4>
-                                <p>새 Run을 추가해도 이전 Run과 연결된 근거 업무, Open Item, Hypothesis는 그대로 보존됩니다.</p>
-                              </div>
-                              <form
-                                onSubmit={(event) => {
-                                  event.preventDefault();
-                                  void addCaseAnalysisRun();
-                                }}
-                              >
-                                <label>
-                                  새 cutoff (초)
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    step="0.1"
-                                    value={analysisRunCutoff}
-                                    onChange={(event) => setAnalysisRunCutoff(Number(event.target.value))}
-                                  />
-                                </label>
-                                <label>
-                                  실행자
-                                  <input
-                                    value={analysisRunCreator}
-                                    onChange={(event) => setAnalysisRunCreator(event.target.value)}
-                                    placeholder="Shift B 담당자"
-                                    maxLength={120}
-                                  />
-                                </label>
-                                <label className="analysis-run-question">
-                                  조사 질문 (선택)
-                                  <input
-                                    value={analysisRunQuestion}
-                                    onChange={(event) => setAnalysisRunQuestion(event.target.value)}
-                                    placeholder="추가 데이터까지 포함해 다시 확인"
-                                    maxLength={2000}
-                                  />
-                                </label>
-                                <button
-                                  className="button primary"
-                                  disabled={
-                                    !analysisRunCreator.trim() ||
-                                    analysisRunBusy ||
-                                    activeCase.status === "closed" ||
-                                    analysisRunCutoff <= (resume?.current_run?.diagnosis_time ?? -1)
-                                  }
-                                >
-                                  {analysisRunBusy ? <LoaderCircle className="spin" size={15} /> : <Play size={15} />}
-                                  Add Analysis Run
-                                </button>
-                              </form>
-                              {resume?.current_run && analysisRunCutoff <= resume.current_run.diagnosis_time && (
-                                <small>현재 cutoff {resume.current_run.diagnosis_time}s보다 늦은 시점을 입력해 주세요.</small>
-                              )}
+                        </section>
+                        <div className="continuity-comparison-wrap" aria-label="연속성">
+                          <div className="section-heading">
+                            <div>
+                              <span className="eyebrow">연속성</span>
+                              <h3>이 Case를 인계받은 이후 무엇이 달라졌는가</h3>
                             </div>
-                            <div className="analysis-run-history">
-                              <strong>Run History</strong>
-                              <ol>
-                                {activeCase.analysis_runs.map((item, index) => (
-                                  <li key={item.id}>
-                                    <span className="run-order">R{index + 1}</span>
-                                    <div>
-                                      <code>{item.id}</code>
-                                      <small>cutoff {item.diagnosis_time}s · {new Date(item.created_at).toLocaleString("ko-KR")}</small>
-                                    </div>
-                                    {item.id === activeCase.current_run_id && <span className="badge teal">현재</span>}
-                                    <button
-                                      className="button secondary compact"
-                                      disabled={caseBusy}
-                                      onClick={() => void showCaseRun(item.id)}
-                                    >
-                                      결과 보기
-                                    </button>
-                                  </li>
-                                ))}
-                              </ol>
-                            </div>
-                          </section>
+                          </div>
                           {resume && (
                             <div className="continuity-comparison" aria-label="Handover 당시와 현재 상태 비교">
                               <section className="continuity-state at-handover">
-                                <span className="eyebrow">AT HANDOVER</span>
+                                <span className="eyebrow">인계 당시</span>
                                 <h4>Packet 발행 당시</h4>
                                 {resume.current_snapshot ? (
                                   <>
@@ -2235,7 +2160,7 @@ export default function App() {
                                 )}
                               </section>
                               <section className="continuity-state current">
-                                <span className="eyebrow">CURRENT</span>
+                                <span className="eyebrow">현재 상태</span>
                                 <h4>현재 Case</h4>
                                 <p className="continuity-meta">
                                   Case 버전 {resume.case_version} · {caseStatusLabel[resume.status]}
@@ -2259,7 +2184,7 @@ export default function App() {
                                 </div>
                               </section>
                               <section className="handover-delta">
-                                <span className="eyebrow">CHANGES SINCE HANDOVER</span>
+                                <span className="eyebrow">인계 이후 변경</span>
                                 <h4>인계 이후 변경</h4>
                                 {!resume.current_snapshot ? (
                                   <p>Snapshot 발행 후 변경을 비교할 수 있습니다.</p>
@@ -2278,16 +2203,17 @@ export default function App() {
                               </section>
                             </div>
                           )}
-                          <section className="case-state-editor" aria-label="조사 상태 업데이트">
-                            <div className="section-heading">
-                              <div>
-                                <span className="eyebrow">INVESTIGATION STATE</span>
-                                <h3>남은 업무와 가설 상태</h3>
-                                <p>각 Open Item과 Hypothesis는 Case 버전을 확인한 뒤 독립적으로 저장됩니다.</p>
-                              </div>
-                              <ShieldCheck size={20} />
+                        </div>
+                        <section className="case-todo-panel" aria-label="해야 할 일">
+                          <div className="section-heading">
+                            <div>
+                              <span className="eyebrow">해야 할 일</span>
+                              <h3>그래서 지금 내가 해야 할 일은 무엇인가</h3>
+                              <p>Open Item과 AI가 정리한 메모 제안을 함께 확인합니다.</p>
                             </div>
-                            <div className="state-editor-grid">
+                            <ShieldCheck size={20} />
+                          </div>
+                          <div className="state-editor-grid single">
                               <div className="state-editor-column">
                                 <strong className="state-editor-label">OPEN ITEMS <span>{activeCase.open_items.length}</span></strong>
                                 {activeCase.open_items.length ? activeCase.open_items.map((item) => {
@@ -2357,54 +2283,7 @@ export default function App() {
                                   );
                                 }) : <p className="muted">현재 Open Item이 없습니다.</p>}
                               </div>
-                              <div className="state-editor-column">
-                                <strong className="state-editor-label">HYPOTHESES <span>{activeCase.hypotheses.length}</span></strong>
-                                {activeCase.hypotheses.length ? activeCase.hypotheses.map((hypothesis) => (
-                                  <div className="state-editor-card" key={hypothesis.id}>
-                                    <div className="state-editor-card-heading">
-                                      <strong>{hypothesis.candidate_signal}</strong>
-                                      <code>{hypothesis.judgment}</code>
-                                    </div>
-                                    <p className="state-editor-footnote">
-                                      분석 {activeCase.analysis_runs.findIndex((run) => run.id === hypothesis.run_id) >= 0
-                                        ? `R${activeCase.analysis_runs.findIndex((run) => run.id === hypothesis.run_id) + 1}`
-                                        : "기록 없음"} · {hypothesis.run_id}
-                                    </p>
-                                    <div className="task-references">
-                                      {hypothesis.evidence_ids.map((id) => (
-                                        <button key={id} type="button" onClick={() => void showCaseRun(hypothesis.run_id, id)}>
-                                          근거 {id}
-                                        </button>
-                                      ))}
-                                    </div>
-                                    <label>
-                                      판단
-                                      <select
-                                        value={hypothesis.judgment}
-                                        disabled={handoverBusy}
-                                        onChange={(event) => void assessCaseHypothesis(hypothesis, event.target.value as HypothesisTrack["judgment"])}
-                                      >
-                                        <option value="unreviewed">미검토</option>
-                                        <option value="supported">지지</option>
-                                        <option value="not_supported">지지하지 않음</option>
-                                        <option value="insufficient">근거 부족</option>
-                                      </select>
-                                    </label>
-                                    <label>
-                                      판단 근거
-                                      <input
-                                        value={hypothesisReasons[hypothesis.id] ?? hypothesis.change_reason}
-                                        onChange={(event) => setHypothesisReasons((previous) => ({ ...previous, [hypothesis.id]: event.target.value }))}
-                                        placeholder="왜 이 상태로 판단했는지 기록"
-                                        maxLength={2000}
-                                      />
-                                    </label>
-                                    <small className="state-editor-footnote">AI 후보 · 최종 원인 확정 아님</small>
-                                  </div>
-                                )) : <p className="muted">현재 가설 후보가 없습니다.</p>}
-                              </div>
-                            </div>
-                          </section>
+                          </div>
                           <section className="structuring-panel" aria-label="AI 메모 구조화 제안">
                             <div className="section-heading">
                               <div>
@@ -2507,6 +2386,152 @@ export default function App() {
                               )}
                             </div>
                           </section>
+                        </section>
+                        <section className="case-hypothesis-panel" aria-label="원인 가설">
+                          <div className="section-heading">
+                            <div>
+                              <span className="eyebrow">원인 가설</span>
+                              <h3>지금 어떤 원인 가설을 보고 있는가</h3>
+                              <p>RCA Candidate를 바탕으로 사람이 검토 중인 판단입니다. 최종 원인 확정이 아닙니다.</p>
+                            </div>
+                          </div>
+                          <div className="state-editor-grid single">
+                              <div className="state-editor-column">
+                                <strong className="state-editor-label">HYPOTHESES <span>{activeCase.hypotheses.length}</span></strong>
+                                {activeCase.hypotheses.length ? activeCase.hypotheses.map((hypothesis) => (
+                                  <div className="state-editor-card" key={hypothesis.id}>
+                                    <div className="state-editor-card-heading">
+                                      <strong>{hypothesis.candidate_signal}</strong>
+                                      <code>{hypothesis.judgment}</code>
+                                    </div>
+                                    <p className="state-editor-footnote">
+                                      분석 {activeCase.analysis_runs.findIndex((run) => run.id === hypothesis.run_id) >= 0
+                                        ? `R${activeCase.analysis_runs.findIndex((run) => run.id === hypothesis.run_id) + 1}`
+                                        : "기록 없음"} · {hypothesis.run_id}
+                                    </p>
+                                    <div className="task-references">
+                                      {hypothesis.evidence_ids.map((id) => (
+                                        <button key={id} type="button" onClick={() => void showCaseRun(hypothesis.run_id, id)}>
+                                          근거 {id}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <label>
+                                      판단
+                                      <select
+                                        value={hypothesis.judgment}
+                                        disabled={handoverBusy}
+                                        onChange={(event) => void assessCaseHypothesis(hypothesis, event.target.value as HypothesisTrack["judgment"])}
+                                      >
+                                        <option value="unreviewed">미검토</option>
+                                        <option value="supported">지지</option>
+                                        <option value="not_supported">지지하지 않음</option>
+                                        <option value="insufficient">근거 부족</option>
+                                      </select>
+                                    </label>
+                                    <label>
+                                      판단 근거
+                                      <input
+                                        value={hypothesisReasons[hypothesis.id] ?? hypothesis.change_reason}
+                                        onChange={(event) => setHypothesisReasons((previous) => ({ ...previous, [hypothesis.id]: event.target.value }))}
+                                        placeholder="왜 이 상태로 판단했는지 기록"
+                                        maxLength={2000}
+                                      />
+                                    </label>
+                                    <small className="state-editor-footnote">AI 후보 · 최종 원인 확정 아님</small>
+                                  </div>
+                                )) : <p className="muted">현재 가설 후보가 없습니다.</p>}
+                              </div>
+                          </div>
+                        </section>
+                          <section className="analysis-run-panel" aria-label="Analysis Run 추가 및 이력">
+                            <div className="analysis-run-controls">
+                              <div>
+                                <span className="eyebrow">SAME CASE ANALYSIS</span>
+                                <h4>더 늦은 시점으로 분석 이어가기</h4>
+                                <p>새 Run을 추가해도 이전 Run과 연결된 근거 업무, Open Item, Hypothesis는 그대로 보존됩니다.</p>
+                              </div>
+                              <form
+                                onSubmit={(event) => {
+                                  event.preventDefault();
+                                  void addCaseAnalysisRun();
+                                }}
+                              >
+                                <label>
+                                  새 cutoff (초)
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step="0.1"
+                                    value={analysisRunCutoff}
+                                    onChange={(event) => setAnalysisRunCutoff(Number(event.target.value))}
+                                  />
+                                </label>
+                                <label>
+                                  실행자
+                                  <input
+                                    value={analysisRunCreator}
+                                    onChange={(event) => setAnalysisRunCreator(event.target.value)}
+                                    placeholder="Shift B 담당자"
+                                    maxLength={120}
+                                  />
+                                </label>
+                                <label className="analysis-run-question">
+                                  조사 질문 (선택)
+                                  <input
+                                    value={analysisRunQuestion}
+                                    onChange={(event) => setAnalysisRunQuestion(event.target.value)}
+                                    placeholder="추가 데이터까지 포함해 다시 확인"
+                                    maxLength={2000}
+                                  />
+                                </label>
+                                <button
+                                  className="button primary"
+                                  disabled={
+                                    !analysisRunCreator.trim() ||
+                                    analysisRunBusy ||
+                                    activeCase.status === "closed" ||
+                                    analysisRunCutoff <= (resume?.current_run?.diagnosis_time ?? -1)
+                                  }
+                                >
+                                  {analysisRunBusy ? <LoaderCircle className="spin" size={15} /> : <Play size={15} />}
+                                  Add Analysis Run
+                                </button>
+                              </form>
+                              {resume?.current_run && analysisRunCutoff <= resume.current_run.diagnosis_time && (
+                                <small>현재 cutoff {resume.current_run.diagnosis_time}s보다 늦은 시점을 입력해 주세요.</small>
+                              )}
+                            </div>
+                            <div className="analysis-run-history">
+                              <strong>Run History</strong>
+                              <ol>
+                                {activeCase.analysis_runs.map((item, index) => (
+                                  <li key={item.id}>
+                                    <span className="run-order">R{index + 1}</span>
+                                    <div>
+                                      <code>{item.id}</code>
+                                      <small>cutoff {item.diagnosis_time}s · {new Date(item.created_at).toLocaleString("ko-KR")}</small>
+                                    </div>
+                                    {item.id === activeCase.current_run_id && <span className="badge teal">현재</span>}
+                                    <button
+                                      className="button secondary compact"
+                                      disabled={caseBusy}
+                                      onClick={() => void showCaseRun(item.id)}
+                                    >
+                                      결과 보기
+                                    </button>
+                                  </li>
+                                ))}
+                              </ol>
+                            </div>
+                          </section>
+                        <section className="case-handover-panel" aria-label="Handover">
+                          <div className="section-heading">
+                            <div>
+                              <span className="eyebrow">HANDOVER</span>
+                              <h3>다음 교대에게 무엇을 넘겨야 하는가</h3>
+                            </div>
+                          </div>
                           <div className="handover-forms">
                             <form
                               className="review-form"

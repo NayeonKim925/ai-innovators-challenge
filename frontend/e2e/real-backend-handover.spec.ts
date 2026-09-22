@@ -12,7 +12,7 @@ test("real backend preserves the investigation across a shift handover", async (
 
   await page.getByRole("button", { name: "확인 업무로 전환" }).click();
   await expect(page.getByRole("region", { name: "사건 인박스" })).toBeVisible();
-  await expect(page.getByText("교대 인수인계 워크스페이스")).toBeVisible();
+  await expect(page.getByText("지금 이 Case는 어떤 상태인가")).toBeVisible();
 
   const caseRegion = page.getByRole("region", { name: "사건 상세" });
   await expect(caseRegion).toContainText("현재 분석 Run");
