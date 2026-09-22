@@ -32,27 +32,27 @@ test("describes handover changes with status transitions when available", () => 
       { kind: "case-version-changed", from_version: 3, to_version: 6 },
       resume,
     ),
-    "Case version 3 → 6",
+    "기록 버전 3 → 6",
   );
   assert.equal(
     describeHandoverDelta(
       { kind: "added", entity: "observations", id: "obs_2" },
       resume,
     ),
-    "Observation obs_2 added",
+    "관찰 기록 obs_2 추가",
   );
   assert.equal(
     describeHandoverDelta(
       { kind: "updated", entity: "open_items", id: "item_1" },
       resume,
     ),
-    "Open Item item_1: not_started → resolved",
+    "미해결 업무 item_1: 시작 전 → 완료",
   );
   assert.equal(
     describeHandoverDelta(
       { kind: "updated", entity: "hypotheses", id: "hyp_1" },
       resume,
     ),
-    "Hypothesis hyp_1: unreviewed → not_supported",
+    "원인 가설 hyp_1: 미평가 → 지지되지 않음",
   );
 });

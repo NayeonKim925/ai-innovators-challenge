@@ -48,10 +48,9 @@ import type {
   Review,
   ExpertResponseOutcome,
   HandoverFinding,
-  ShiftWorkspace,
-  ShiftWorkspaceFilter,
   StructuringProposal,
 } from "./api";
+import { ShiftWorkspace } from "./ShiftWorkspace";
 import { describeHandoverDelta, snapshotEntities } from "./resume";
 import {
   displayCaseEventDetail,
@@ -60,7 +59,7 @@ import {
 } from "./presentation";
 import { brand } from "./brand";
 
-type Page = "workspace" | "cases" | "history" | "datasets" | "guide";
+type Page = "shift" | "workspace" | "cases" | "history" | "datasets" | "guide";
 type Tab = "signals" | "results" | "review" | "chat";
 type CaseInboxFilter = "all" | "action" | "handover" | "closed";
 type Saved = { id: string; incident: string; at: string };
@@ -72,13 +71,6 @@ const caseStatusLabel: Record<InvestigationCase["status"], string> = {
   reopened: "재개됨",
   abstained: "판단 보류",
   closed: "종료됨",
-};
-const shiftReasonLabel: Record<string, string> = {
-  pending_handover: "인수 대기",
-  assigned_open_item: "내 Open Item",
-  unknown_state: "미확인 상태",
-  stale_snapshot: "최신 상태 필요",
-  blocking_finding: "차단 이슈",
 };
 function readHistory(): Saved[] {
   try {
@@ -203,7 +195,7 @@ function Timeline({
 }
 
 export default function App() {
-  const [page, setPage] = useState<Page>("workspace");
+  const [page, setPage] = useState<Page>("shift");
   const [tab, setTab] = useState<Tab>("signals");
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [health, setHealth] = useState<Health | null>(null);
@@ -245,10 +237,6 @@ export default function App() {
   const [casesAvailable, setCasesAvailable] = useState(true);
   const [caseInboxFilter, setCaseInboxFilter] = useState<CaseInboxFilter>("all");
   const [shiftAssignee, setShiftAssignee] = useState("Shift B");
-  const [workspaceFilter, setWorkspaceFilter] = useState<ShiftWorkspaceFilter>("action_required");
-  const [shiftWorkspace, setShiftWorkspace] = useState<ShiftWorkspace | null>(null);
-  const [shiftWorkspaceLoading, setShiftWorkspaceLoading] = useState(false);
-  const [shiftWorkspaceError, setShiftWorkspaceError] = useState("");
   const [caseBusy, setCaseBusy] = useState(false);
   const [taskOutcome, setTaskOutcome] = useState<ExpertResponseOutcome>("confirmed");
   const [taskResponder, setTaskResponder] = useState("");
@@ -310,26 +298,6 @@ export default function App() {
       alive = false;
     };
   }, [reload]);
-  useEffect(() => {
-    let alive = true;
-    setShiftWorkspaceLoading(true);
-    setShiftWorkspaceError("");
-    const params = new URLSearchParams({ status: workspaceFilter });
-    if (shiftAssignee.trim()) params.set("assignee", shiftAssignee.trim());
-    api<ShiftWorkspace>(`/shift-workspace?${params.toString()}`)
-      .then((result) => {
-        if (alive) setShiftWorkspace(result);
-      })
-      .catch((error) => {
-        if (alive) setShiftWorkspaceError(message(error));
-      })
-      .finally(() => {
-        if (alive) setShiftWorkspaceLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [reload, shiftAssignee, workspaceFilter]);
   useEffect(() => {
     const ctl = new AbortController();
     setLoading(true);
@@ -561,7 +529,6 @@ export default function App() {
         delete next[proposal.id];
         return next;
       });
-      void refreshShiftWorkspace();
       setNotice(`${proposalLabel(proposal.kind)}을 검토 후 Case에 반영했습니다. 나머지 제안은 새 버전 확인이 필요합니다.`);
     } catch (error) {
       setActionError(message(error));
@@ -602,25 +569,6 @@ export default function App() {
       setCaseBusy(false);
     }
   }
-  async function openShiftWorkspaceCase(caseId: string) {
-    const cached = cases.find((item) => item.id === caseId);
-    if (cached) {
-      await selectCase(cached);
-      return;
-    }
-    setCaseBusy(true);
-    setActionError("");
-    try {
-      const loaded = await api<InvestigationCase>(`/cases/${encodeURIComponent(caseId)}`);
-      replaceCase(loaded);
-      setCaseBusy(false);
-      await selectCase(loaded);
-    } catch (error) {
-      setActionError(message(error));
-    } finally {
-      setCaseBusy(false);
-    }
-  }
   function openItemDraft(item: OpenItem) {
     return openItemDrafts[item.id] || {
       status: item.status,
@@ -655,8 +603,12 @@ export default function App() {
         },
       );
       replaceCase(updated);
+      setOpenItemDrafts((previous) => {
+        const next = { ...previous };
+        delete next[item.id];
+        return next;
+      });
       setNotice(`Open Item “${item.title}” 상태를 저장했습니다.`);
-      void refreshShiftWorkspace();
     } catch (error) {
       setActionError(message(error));
     } finally {
@@ -684,22 +636,10 @@ export default function App() {
       );
       replaceCase(updated);
       setNotice(`가설 “${hypothesis.candidate_signal}” 판단을 저장했습니다.`);
-      void refreshShiftWorkspace();
     } catch (error) {
       setActionError(message(error));
     } finally {
       setHandoverBusy(false);
-    }
-  }
-  async function refreshShiftWorkspace() {
-    const params = new URLSearchParams({ status: workspaceFilter });
-    if (shiftAssignee.trim()) params.set("assignee", shiftAssignee.trim());
-    try {
-      const result = await api<ShiftWorkspace>(`/shift-workspace?${params.toString()}`);
-      setShiftWorkspace(result);
-      setShiftWorkspaceError("");
-    } catch (error) {
-      setShiftWorkspaceError(message(error));
     }
   }
   async function showCaseRun(runId: string | null, nextEvidenceId = "") {
@@ -892,7 +832,6 @@ export default function App() {
         },
       );
       replaceCase(updated);
-      void refreshShiftWorkspace();
       setNotice("Open Item 담당자가 지정되었습니다.");
     } catch (e) {
       setActionError(message(e));
@@ -915,7 +854,6 @@ export default function App() {
       );
       setHandoverFindings(result.findings);
       replaceCase(result.case);
-      void refreshShiftWorkspace();
       setNotice(result.blocking ? "인계 전 보완이 필요합니다." : "인계 점검을 완료했습니다.");
     } catch (e) {
       setActionError(message(e));
@@ -938,7 +876,6 @@ export default function App() {
         },
       );
       replaceCase(updated);
-      void refreshShiftWorkspace();
       setHandoverFindings(updated.handover_snapshots.at(-1)?.findings || []);
       setNotice("버전이 고정된 인계 Packet을 발행했습니다.");
     } catch (e) {
@@ -964,7 +901,6 @@ export default function App() {
         },
       );
       replaceCase(updated);
-      void refreshShiftWorkspace();
       setNotice("인계 상태를 확인하고 수락했습니다. 조사는 계속 진행할 수 있습니다.");
     } catch (e) {
       setActionError(message(e));
@@ -1133,8 +1069,9 @@ export default function App() {
     "hypotheses",
   );
   const title = {
+    shift: "교대 워크스페이스",
     workspace: "조사 워크스페이스",
-    cases: "교대 워크스페이스",
+    cases: "Case 상세",
     history: "조사 기록",
     datasets: "데이터셋",
     guide: "사용 안내",
@@ -1162,7 +1099,7 @@ export default function App() {
           aria-label={`${brand.name} ${brand.koreanName} · 조사 홈`}
           onClick={(e) => {
             e.preventDefault();
-            setPage("workspace");
+            setPage("shift");
           }}
         >
           <span className="brand-symbol">
@@ -1182,8 +1119,9 @@ export default function App() {
         <nav aria-label="주 메뉴">
           {(
             [
-              { id: "workspace", label: "사건 조사", icon: FileSearch },
-              { id: "cases", label: "사건 인박스", icon: ListChecks },
+              { id: "shift", label: "교대 워크스페이스", icon: Layers3 },
+              { id: "cases", label: "Case 상세", icon: ListChecks },
+              { id: "workspace", label: "새 사건 분석", icon: FileSearch },
               { id: "history", label: "조사 기록", icon: Clock3 },
               { id: "datasets", label: "데이터셋", icon: Database },
             ] as const
@@ -1243,10 +1181,12 @@ export default function App() {
               <div className="eyebrow">INVESTIGATE WITH EVIDENCE</div>
               <h1>{title}</h1>
               <p>
-                {page === "workspace"
+                {page === "shift"
+                  ? "이번 교대의 진행 중인 조사와 우선 확인할 일을 한눈에 봅니다."
+                  : page === "workspace"
                   ? "흩어진 공정 신호를 연결하고, 다음에 확인할 근거를 찾으세요."
                   : page === "cases"
-                    ? "인수 대기와 담당 Open Item을 먼저 확인하고, 중단된 조사를 이어갑니다."
+                    ? "사건의 인계 당시 상태와 현재 조사 내용을 확인하고 이어서 조사합니다."
                   : page === "history"
                     ? "이 브라우저에서 실행한 조사를 다시 확인합니다."
                     : page === "datasets"
@@ -1277,6 +1217,19 @@ export default function App() {
             </div>
           )}
           {actionError && <ErrorBox text={actionError} />}
+          {page === "shift" && (
+            <ShiftWorkspace
+              cases={cases}
+              casesAvailable={casesAvailable}
+              incidents={incidents}
+              actor={shiftAssignee}
+              onActorChange={setShiftAssignee}
+              onOpen={(item) => {
+                void selectCase(item);
+                setPage("cases");
+              }}
+            />
+          )}
           {page === "workspace" && (
             <>
               <dl className="overview ledger-summary" aria-label="조사 환경 요약">
@@ -2024,80 +1977,6 @@ export default function App() {
                 />
               ) : (
                 <>
-                  <section className="shift-workspace-panel panel" aria-label="내 교대 업무">
-                    <div className="shift-workspace-heading">
-                      <div>
-                        <span className="eyebrow">SHIFT WORKSPACE</span>
-                        <h2>이번 교대에서 바로 이어갈 일</h2>
-                        <p>전체 사건을 다시 읽지 않고, 인수 대기와 내 Open Item부터 확인합니다.</p>
-                      </div>
-                      <form
-                        className="shift-workspace-controls"
-                        onSubmit={(event) => {
-                          event.preventDefault();
-                          void refreshShiftWorkspace();
-                        }}
-                      >
-                        <label>
-                          담당자 ID
-                          <input
-                            value={shiftAssignee}
-                            onChange={(event) => setShiftAssignee(event.target.value)}
-                            placeholder="Shift B"
-                            maxLength={120}
-                          />
-                        </label>
-                        <label>
-                          보기
-                          <select value={workspaceFilter} onChange={(event) => setWorkspaceFilter(event.target.value as ShiftWorkspaceFilter)}>
-                            <option value="action_required">조치 필요</option>
-                            <option value="handover">인수 대기</option>
-                            <option value="open_items">내 Open Item</option>
-                            <option value="stale">최신화 필요</option>
-                            <option value="all">전체 관련 사건</option>
-                          </select>
-                        </label>
-                        <button className="button secondary compact" disabled={shiftWorkspaceLoading}>
-                          {shiftWorkspaceLoading ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />}
-                          새로고침
-                        </button>
-                      </form>
-                    </div>
-                    {shiftWorkspaceError && <p className="shift-workspace-error">워크스페이스를 불러오지 못했습니다. {shiftWorkspaceError}</p>}
-                    {shiftWorkspace && (
-                      <>
-                        <div className="shift-workspace-summary" aria-label="교대 업무 요약">
-                          <div><strong>{shiftWorkspace.summary.cases}</strong><span>사건</span></div>
-                          <div><strong>{shiftWorkspace.summary.pending_handovers}</strong><span>인수 대기</span></div>
-                          <div><strong>{shiftWorkspace.summary.assigned_open_items}</strong><span>내 Open Item</span></div>
-                          <div><strong>{shiftWorkspace.summary.stale_snapshots}</strong><span>최신화 필요</span></div>
-                          <div><strong>{shiftWorkspace.summary.blocking_findings}</strong><span>차단 이슈</span></div>
-                        </div>
-                        <div className="shift-workspace-list">
-                          {shiftWorkspace.items.length ? shiftWorkspace.items.map((item) => (
-                            <button
-                              className="shift-workspace-item"
-                              key={item.case_id}
-                              onClick={() => void openShiftWorkspaceCase(item.case_id)}
-                              disabled={caseBusy}
-                            >
-                              <div className="shift-workspace-item-main">
-                                <strong>사건 {shortId(item.incident_id)}</strong>
-                                <span>우선순위 {item.priority} · 버전 {item.case_version}{item.handover_receiver ? ` · 인수자 ${item.handover_receiver}` : ""}</span>
-                              </div>
-                              <div className="shift-workspace-reasons">
-                                {item.reasons.map((reason) => <span className="badge neutral" key={reason}>{shiftReasonLabel[reason] || reason}</span>)}
-                              </div>
-                              <p>{item.next_action}</p>
-                              <span className="shift-workspace-item-arrow"><ChevronRight size={16} /></span>
-                            </button>
-                          )) : (
-                            <p className="shift-workspace-empty">현재 담당자에게 배정된 조치가 없습니다.</p>
-                          )}
-                        </div>
-                      </>
-                    )}
-                  </section>
                   <div className="caseboard-grid">
                   <aside className="case-inbox panel" aria-label="사건 목록">
                     <div className="case-inbox-heading">
@@ -2419,6 +2298,24 @@ export default function App() {
                                         <strong>{item.title}</strong>
                                         <code>{item.status}</code>
                                       </div>
+                                      <p className="state-editor-footnote">
+                                        분석 {activeCase.analysis_runs.findIndex((run) => run.id === item.run_id) >= 0
+                                          ? `R${activeCase.analysis_runs.findIndex((run) => run.id === item.run_id) + 1}`
+                                          : "기록 없음"} · {item.run_id || "legacy"}
+                                      </p>
+                                      <div className="task-references">
+                                        {item.evidence_ids.map((id) => (
+                                          <button
+                                            key={id}
+                                            type="button"
+                                            disabled={!item.run_id && activeCase.analysis_runs.length !== 1}
+                                            onClick={() => void showCaseRun(item.run_id || activeCase.analysis_runs[0]?.id || null, id)}
+                                          >
+                                            근거 {id}
+                                          </button>
+                                        ))}
+                                        {!item.evidence_ids.length && <span>연결된 근거 없음</span>}
+                                      </div>
                                       <div className="state-editor-fields">
                                         <label>
                                           상태
@@ -2467,6 +2364,18 @@ export default function App() {
                                     <div className="state-editor-card-heading">
                                       <strong>{hypothesis.candidate_signal}</strong>
                                       <code>{hypothesis.judgment}</code>
+                                    </div>
+                                    <p className="state-editor-footnote">
+                                      분석 {activeCase.analysis_runs.findIndex((run) => run.id === hypothesis.run_id) >= 0
+                                        ? `R${activeCase.analysis_runs.findIndex((run) => run.id === hypothesis.run_id) + 1}`
+                                        : "기록 없음"} · {hypothesis.run_id}
+                                    </p>
+                                    <div className="task-references">
+                                      {hypothesis.evidence_ids.map((id) => (
+                                        <button key={id} type="button" onClick={() => void showCaseRun(hypothesis.run_id, id)}>
+                                          근거 {id}
+                                        </button>
+                                      ))}
                                     </div>
                                     <label>
                                       판단

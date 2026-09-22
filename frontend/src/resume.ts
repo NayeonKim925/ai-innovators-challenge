@@ -37,10 +37,19 @@ export function snapshotEntities(
 }
 
 const entityLabel = {
-  observations: "Observation",
-  open_items: "Open Item",
-  hypotheses: "Hypothesis",
+  observations: "관찰 기록",
+  open_items: "미해결 업무",
+  hypotheses: "원인 가설",
 } as const;
+const openItemStatusLabel: Record<string, string> = {
+  not_started: "시작 전", unavailable: "확인 불가", not_recorded: "기록 없음",
+  on_hold: "보류", resolved: "완료",
+};
+const hypothesisJudgmentLabel: Record<string, string> = {
+  unreviewed: "미평가", supported: "지지", not_supported: "지지되지 않음",
+  insufficient: "근거 부족",
+};
+const displayValue = (labels: Record<string, string>, value: unknown) => labels[String(value)] || String(value);
 
 function findSnapshotEntity(
   resume: CaseResume,
@@ -66,7 +75,7 @@ export function describeHandoverDelta(
   resume: CaseResume,
 ): string {
   if (delta.kind === "case-version-changed") {
-    return `Case version ${delta.from_version} → ${delta.to_version}`;
+    return `기록 버전 ${delta.from_version} → ${delta.to_version}`;
   }
 
   const label = entityLabel[delta.entity];
@@ -81,7 +90,7 @@ export function describeHandoverDelta(
     "status" in previous &&
     "status" in current
   ) {
-    return `${label} ${delta.id}: ${previous.status} → ${current.status}`;
+    return `${label} ${delta.id}: ${displayValue(openItemStatusLabel, previous.status)} → ${displayValue(openItemStatusLabel, current.status)}`;
   }
   if (
     delta.kind === "updated" &&
@@ -91,14 +100,9 @@ export function describeHandoverDelta(
     "judgment" in previous &&
     "judgment" in current
   ) {
-    return `${label} ${delta.id}: ${previous.judgment} → ${current.judgment}`;
+    return `${label} ${delta.id}: ${displayValue(hypothesisJudgmentLabel, previous.judgment)} → ${displayValue(hypothesisJudgmentLabel, current.judgment)}`;
   }
 
-  const verb =
-    delta.kind === "added"
-      ? "added"
-      : delta.kind === "removed"
-        ? "removed"
-        : "updated";
+  const verb = delta.kind === "added" ? "추가" : delta.kind === "removed" ? "삭제" : "변경";
   return `${label} ${delta.id} ${verb}`;
 }
