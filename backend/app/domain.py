@@ -78,6 +78,25 @@ class HandoverFindingSeverity(str, Enum):
     WARNING = "warning"
 
 
+ActorRole = Literal[
+    "operator",
+    "shift_lead",
+    "supervisor",
+    "maintenance_lead",
+    "admin",
+]
+
+
+class ActorContext(BaseModel):
+    """Trusted identity context attached to a state-changing Case action."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    actor_id: str = Field(min_length=1, max_length=120)
+    role: ActorRole
+    source: Literal["trusted_header", "local_fallback"] = "trusted_header"
+
+
 class ExpertResponseOutcome(str, Enum):
     """Outcome of an evidence check, never a root-cause confirmation."""
 
@@ -183,6 +202,81 @@ class CaseChatRequest(ChatRequest):
     include_llm: bool = False
 
 
+StructuringProposalKind = Literal["observation", "open_item", "hypothesis"]
+
+
+class StructuringProposalRequest(BaseModel):
+    """Requests a non-authoritative interpretation of an operator note."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=0)
+    note: str = Field(min_length=1, max_length=4000)
+    author: str = Field(min_length=1, max_length=120)
+    observed_at: str | None = None
+    scope: str = Field(default="", max_length=500)
+    source_location: str = Field(default="", max_length=500)
+    provenance: ObservationProvenance = ObservationProvenance.SYNTHETIC_DEMO
+    include_llm: bool = False
+
+
+class StructuringProposalAcceptRequest(BaseModel):
+    """Accepts one reviewed proposal and applies it through a Case transition."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    expected_version: int = Field(ge=0)
+    accepted_by: str = Field(min_length=1, max_length=120)
+    edited_text: str | None = Field(default=None, min_length=1, max_length=4000)
+
+
+class StructuringProposalDismissRequest(BaseModel):
+    """Dismisses a reviewable proposal without changing Case state."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dismissed_by: str = Field(min_length=1, max_length=120)
+
+
+class StructuringProposal(BaseModel):
+    """A stored, reviewable suggestion; it is not Case state."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(pattern=r"^proposal_[A-Za-z0-9_-]{1,100}$")
+    case_id: str = Field(min_length=1, max_length=80)
+    case_version: int = Field(ge=0)
+    kind: StructuringProposalKind
+    source_text: str = Field(min_length=1, max_length=4000)
+    source_span: tuple[int, int]
+    confidence: float = Field(ge=0, le=1)
+    missing_evidence: list[str] = Field(default_factory=list)
+    suggested_observation: str | None = Field(default=None, max_length=4000)
+    suggested_open_item_title: str | None = Field(default=None, max_length=240)
+    suggested_open_item_role: (
+        Literal["operator", "process_expert", "equipment_expert"] | None
+    ) = None
+    target_hypothesis_id: str | None = Field(default=None, max_length=80)
+    suggested_judgment: HypothesisJudgment | None = None
+    suggested_reason: str = Field(default="", max_length=2000)
+    author: str = Field(min_length=1, max_length=120)
+    observed_at: str | None = None
+    scope: str = Field(default="", max_length=500)
+    source_location: str = Field(default="", max_length=500)
+    provenance: ObservationProvenance
+    llm_status: LLMStatus = LLMStatus.NOT_REQUESTED
+    generator: Literal["deterministic", "llm"] = "deterministic"
+    created_at: str
+
+
+class StructuringProposalResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str
+    case_version: int = Field(ge=0)
+    proposals: list[StructuringProposal] = Field(default_factory=list)
+
+
 class ChatResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -272,6 +366,7 @@ class OperatorObservationRequest(BaseModel):
     scope: str = Field(default="", max_length=500)
     source_location: str = Field(default="", max_length=500)
     provenance: ObservationProvenance = ObservationProvenance.SYNTHETIC_DEMO
+    is_current_state: bool = False
 
 
 class AnalysisRunRequest(BaseModel):
@@ -346,6 +441,9 @@ class HandoverChangeRequest(BaseModel):
     reason: str = Field(min_length=1, max_length=2000)
 
 
+ShiftWorkspaceFilter = Literal["all", "action_required", "handover", "open_items", "stale"]
+
+
 class ExpertTaskResponse(BaseModel):
     """A bounded expert response to a requested evidence check.
 
@@ -414,6 +512,7 @@ class OperatorObservation(BaseModel):
     source_location: str = Field(default="", max_length=500)
     provenance: ObservationProvenance
     approved: bool = False
+    is_current_state: bool = False
 
 
 class OpenItem(BaseModel):
@@ -493,6 +592,8 @@ class Handover(BaseModel):
     snapshot_id: str = Field(min_length=1, max_length=80)
     status: HandoverStatus = HandoverStatus.PUBLISHED
     exception_reason: str = Field(default="", max_length=2000)
+    exception_approved_by: str | None = Field(default=None, max_length=120)
+    exception_approved_role: str | None = Field(default=None, max_length=80)
     change_request: str = Field(default="", max_length=2000)
     created_at: str
     published_at: str
@@ -527,6 +628,8 @@ class CaseEvent(BaseModel):
     ]
     detail: str = Field(min_length=1, max_length=2000)
     actor: Literal["case_orchestrator", "expert", "operator", "analyst", "system"]
+    actor_id: str | None = Field(default=None, max_length=120)
+    actor_role: ActorRole | None = None
     evidence_ids: list[str] = Field(default_factory=list)
     trace_steps: list[int] = Field(default_factory=list)
     created_at: str
@@ -574,3 +677,44 @@ class InvestigationCase(BaseModel):
     reviews: list[StoredCaseReview] = Field(default_factory=list)
     created_at: str
     updated_at: str
+
+
+class ShiftWorkspaceItem(BaseModel):
+    """A compact, action-oriented Case projection for an incoming shift."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str
+    incident_id: str
+    case_status: CaseStatus
+    case_version: int = Field(ge=0)
+    priority: int = Field(ge=0)
+    reasons: list[str] = Field(default_factory=list)
+    next_action: str
+    handover_status: HandoverStatus | None = None
+    handover_receiver: str | None = None
+    pending_handover: bool = False
+    stale_snapshot: bool = False
+    blocking_findings: list[HandoverFinding] = Field(default_factory=list)
+    open_items: list[OpenItem] = Field(default_factory=list)
+    hypotheses: list[HypothesisTrack] = Field(default_factory=list)
+    updated_at: str
+
+
+class ShiftWorkspaceSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cases: int = Field(ge=0)
+    pending_handovers: int = Field(ge=0)
+    assigned_open_items: int = Field(ge=0)
+    stale_snapshots: int = Field(ge=0)
+    blocking_findings: int = Field(ge=0)
+
+
+class ShiftWorkspaceResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    assignee: str | None = None
+    status: ShiftWorkspaceFilter
+    summary: ShiftWorkspaceSummary
+    items: list[ShiftWorkspaceItem] = Field(default_factory=list)

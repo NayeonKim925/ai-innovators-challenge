@@ -362,6 +362,34 @@ def test_reused_evidence_id_stays_scoped_to_its_analysis_run(tmp_path: Path) -> 
     )
     assert invalid_r1_assessment.status_code == 409
 
+    first_assessment = client.post(
+        f"/api/cases/{first_case['id']}/hypotheses/{first_hypothesis['id']}/assessments",
+        json={
+            "expected_version": rerun_case["version"],
+            "judgment": "not_supported",
+            "updated_by": "Shift B",
+            "change_reason": "첫 번째 Run의 후보는 현재 관찰로 지지되지 않음",
+        },
+    )
+    assert first_assessment.status_code == 200
+    first_assessed_case = first_assessment.json()
+    second_hypothesis = next(
+        item for item in first_assessed_case["hypotheses"] if item["id"] != first_hypothesis["id"]
+    )
+    second_assessment = client.post(
+        f"/api/cases/{first_case['id']}/hypotheses/{second_hypothesis['id']}/assessments",
+        json={
+            "expected_version": first_assessed_case["version"],
+            "judgment": "insufficient",
+            "updated_by": "Shift B",
+            "change_reason": "두 번째 후보는 추가 근거가 필요함",
+        },
+    )
+    assert second_assessment.status_code == 200
+    judgments = {item["id"]: item["judgment"] for item in second_assessment.json()["hypotheses"]}
+    assert judgments[first_hypothesis["id"]] == "not_supported"
+    assert judgments[second_hypothesis["id"]] == "insufficient"
+
     resume = client.get(f"/api/cases/{first_case['id']}/resume").json()
     assert resume["current_run"]["id"] == second_run["id"]
 
@@ -418,6 +446,7 @@ def test_handover_linter_publishes_snapshot_and_accepts_without_closing_case(
             "original_text": "알람 이력은 확인했으나 현장 점검은 미실시",
             "author": "Shift A",
             "provenance": "synthetic_demo",
+            "is_current_state": True,
         },
     ).json()
     item = observation["open_items"][0]
@@ -434,6 +463,7 @@ def test_handover_linter_publishes_snapshot_and_accepts_without_closing_case(
 
     check = client.post(
         f"/api/cases/{case['id']}/handover-checks",
+        headers={"X-Actor-Id": "shift-a-operator", "X-Actor-Role": "operator"},
         json={
             "expected_version": assigned["version"],
             "sender": "Shift A",
@@ -444,6 +474,8 @@ def test_handover_linter_publishes_snapshot_and_accepts_without_closing_case(
     assert check.json()["blocking"] is False
     assert any(item["code"] == "unresolved-open-item" for item in check.json()["findings"])
     assert check.json()["case"]["events"][-1]["event_type"] == "handover_linted"
+    assert check.json()["case"]["events"][-1]["actor_id"] == "shift-a-operator"
+    assert check.json()["case"]["events"][-1]["actor_role"] == "operator"
 
     checked = check.json()["case"]
     published_response = client.post(
@@ -463,9 +495,43 @@ def test_handover_linter_publishes_snapshot_and_accepts_without_closing_case(
     assert snapshot["source_case_version"] == checked["version"]
     assert snapshot["open_item_ids"] == [item["id"]]
     assert snapshot["payload"]["case_id"] == case["id"]
+    assert published["events"][-1]["event_type"] == "handover_published"
+    assert published["events"][-1]["actor_id"] == "Shift A"
+    assert published["events"][-1]["actor_role"] == "operator"
+
+    requested = client.post(
+        f"/api/cases/{case['id']}/handovers/{handover['id']}/change-requests",
+        headers={"X-Actor-Id": "shift-b-operator", "X-Actor-Role": "operator"},
+        json={
+            "expected_version": published["version"],
+            "requested_by": "Shift B",
+            "reason": "현재 설비 상태 확인 시각을 설명해 주세요.",
+        },
+    )
+    assert requested.status_code == 200
+    requested_case = requested.json()
+    assert requested_case["handovers"][-1]["status"] == "changes_requested"
+    assert "clarify" in requested_case["next_action"]
+    assert requested_case["events"][-1]["event_type"] == "handover_changes_requested"
+    assert requested_case["events"][-1]["actor_id"] == "shift-b-operator"
+    assert requested_case["events"][-1]["actor_role"] == "operator"
+
+    republished_response = client.post(
+        f"/api/cases/{case['id']}/handovers",
+        json={
+            "expected_version": requested_case["version"],
+            "sender": "Shift A",
+            "receiver": "Shift B",
+        },
+    )
+    assert republished_response.status_code == 200
+    published = republished_response.json()
+    handover = published["handovers"][-1]
+    snapshot = published["handover_snapshots"][-1]
 
     accepted_response = client.post(
         f"/api/cases/{case['id']}/handovers/{handover['id']}/acceptance",
+        headers={"X-Actor-Id": "shift-b-operator", "X-Actor-Role": "operator"},
         json={
             "expected_version": published["version"],
             "snapshot_id": snapshot["id"],
@@ -476,6 +542,157 @@ def test_handover_linter_publishes_snapshot_and_accepts_without_closing_case(
     accepted = accepted_response.json()
     assert accepted["handovers"][-1]["status"] == "accepted"
     assert accepted["status"] == "awaiting_evidence"
+    assert accepted["events"][-1]["event_type"] == "handover_accepted"
+    assert accepted["events"][-1]["actor_id"] == "shift-b-operator"
+    assert accepted["events"][-1]["actor_role"] == "operator"
+
+
+def test_shift_workspace_prioritizes_assigned_items_and_stale_handover(
+    tmp_path: Path,
+) -> None:
+    client = _client(
+        tmp_path,
+        '[{"time_s":2,"signal":"P101","value":true,"kind":"Alarm"}]',
+    )
+    case = _open_case(client)
+    observed = client.post(
+        f"/api/cases/{case['id']}/observations",
+        json={
+            "expected_version": case["version"],
+            "original_text": "현재 설비는 정지 상태이며 현장 접근은 다음 교대에서 가능",
+            "author": "Shift A",
+            "provenance": "synthetic_demo",
+            "is_current_state": True,
+        },
+    ).json()
+    item = observed["open_items"][0]
+    assigned = client.post(
+        f"/api/cases/{case['id']}/open-items/{item['id']}/updates",
+        json={
+            "expected_version": observed["version"],
+            "status": "unavailable",
+            "assignee": "Shift B",
+            "completion_note": "다음 교대에서 진동을 확인",
+            "observation_ids": [observed["observations"][0]["id"]],
+        },
+    ).json()
+
+    before_handover = client.get(
+        "/api/shift-workspace?assignee=Shift%20B&status=action_required"
+    )
+    assert before_handover.status_code == 200
+    before = before_handover.json()
+    assert before["summary"]["assigned_open_items"] == 1
+    assert before["items"][0]["case_id"] == case["id"]
+    assert "assigned_open_item" in before["items"][0]["reasons"]
+
+    checked = client.post(
+        f"/api/cases/{case['id']}/handover-checks",
+        json={
+            "expected_version": assigned["version"],
+            "sender": "Shift A",
+            "receiver": "Shift B",
+        },
+    ).json()["case"]
+    published = client.post(
+        f"/api/cases/{case['id']}/handovers",
+        json={
+            "expected_version": checked["version"],
+            "sender": "Shift A",
+            "receiver": "Shift B",
+        },
+    ).json()
+    handover_view = client.get(
+        "/api/shift-workspace?assignee=Shift%20B&status=handover"
+    ).json()
+    assert handover_view["summary"]["pending_handovers"] == 1
+    assert handover_view["items"][0]["pending_handover"] is True
+    assert "pending_handover" in handover_view["items"][0]["reasons"]
+
+    changed = client.post(
+        f"/api/cases/{case['id']}/open-items/{item['id']}/updates",
+        json={
+            "expected_version": published["version"],
+            "status": "on_hold",
+            "assignee": "Shift B",
+            "hold_reason": "현장 점검 장비 대기",
+        },
+    )
+    assert changed.status_code == 200
+    stale_view = client.get(
+        "/api/shift-workspace?assignee=Shift%20B&status=stale"
+    ).json()
+    assert stale_view["summary"]["stale_snapshots"] == 1
+    assert stale_view["items"][0]["stale_snapshot"] is True
+    assert stale_view["items"][0]["case_version"] > published["version"]
+
+
+def test_handover_exception_requires_authenticated_lead(tmp_path: Path) -> None:
+    client = _client(
+        tmp_path,
+        '[{"time_s":2,"signal":"P101","value":true,"kind":"Alarm"}]',
+    )
+    case = _open_case(client)
+
+    denied = client.post(
+        f"/api/cases/{case['id']}/handovers",
+        json={
+            "expected_version": case["version"],
+            "sender": "Shift A",
+            "receiver": "Shift B",
+            "exception_reason": "긴급 교대라서 우선 전달",
+        },
+    )
+    assert denied.status_code == 403
+
+    allowed = client.post(
+        f"/api/cases/{case['id']}/handovers",
+        headers={"X-Actor-Id": "lead-1", "X-Actor-Role": "shift_lead"},
+        json={
+            "expected_version": case["version"],
+            "sender": "Shift A",
+            "receiver": "Shift B",
+            "exception_reason": "긴급 교대라서 우선 전달",
+        },
+    )
+    assert allowed.status_code == 200
+    handover = allowed.json()["handovers"][-1]
+    assert handover["exception_approved_by"] == "lead-1"
+    assert handover["exception_approved_role"] == "shift_lead"
+    assert allowed.json()["events"][-1]["actor_id"] == "lead-1"
+    assert allowed.json()["events"][-1]["actor_role"] == "shift_lead"
+
+
+def test_handover_requires_explicit_current_state_observation(tmp_path: Path) -> None:
+    client = _client(
+        tmp_path,
+        '[{"time_s":2,"signal":"P101","value":true,"kind":"Alarm"}]',
+    )
+    case = _open_case(client)
+    observed = client.post(
+        f"/api/cases/{case['id']}/observations",
+        json={
+            "expected_version": case["version"],
+            "original_text": "과거 점검 메모",
+            "author": "Shift A",
+            "provenance": "synthetic_demo",
+            "is_current_state": False,
+        },
+    ).json()
+
+    blocked = client.post(
+        f"/api/cases/{case['id']}/handovers",
+        json={
+            "expected_version": observed["version"],
+            "sender": "Shift A",
+            "receiver": "Shift B",
+        },
+    )
+    assert blocked.status_code == 409
+    assert any(
+        finding["code"] == "missing-current-state"
+        for finding in blocked.json()["detail"]["findings"]
+    )
 
 
 def test_stale_handover_snapshot_is_superseded_before_acceptance(tmp_path: Path) -> None:
@@ -491,6 +708,7 @@ def test_stale_handover_snapshot_is_superseded_before_acceptance(tmp_path: Path)
             "original_text": "교대 메모",
             "author": "Shift A",
             "provenance": "synthetic_demo",
+            "is_current_state": True,
         },
     ).json()
     item = observed["open_items"][0]
@@ -550,6 +768,7 @@ def test_case_resume_and_qna_use_current_case_state_without_llm(tmp_path: Path) 
             "original_text": "알람 이력 확인 완료, 현장 점검은 미실시",
             "author": "Shift A",
             "provenance": "synthetic_demo",
+            "is_current_state": True,
         },
     )
     assert observed.status_code == 200
@@ -559,6 +778,7 @@ def test_case_resume_and_qna_use_current_case_state_without_llm(tmp_path: Path) 
     resume_body = resume.json()
     assert resume_body["case_id"] == case["id"]
     assert resume_body["observations"][0]["text"].startswith("알람 이력")
+    assert resume_body["observations"][0]["is_current_state"] is True
     assert resume_body["open_items"]
 
     answer = client.post(
@@ -573,7 +793,9 @@ def test_case_resume_and_qna_use_current_case_state_without_llm(tmp_path: Path) 
     assert body["trace"]["tool"] == "case_resume_template"
 
 
-def test_case_qna_llm_failure_keeps_template_answer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_case_qna_llm_failure_keeps_template_answer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import app.services.case_chat as chat_module
     from app.domain import TraceEvent
 
@@ -672,7 +894,9 @@ def test_case_rejects_unknown_evidence_reference(tmp_path: Path) -> None:
     assert response.status_code == 409
 
 
-def test_analysis_run_idempotency_returns_existing_case_without_duplicate_run(tmp_path: Path) -> None:
+def test_analysis_run_idempotency_returns_existing_case_without_duplicate_run(
+    tmp_path: Path,
+) -> None:
     client = _client(
         tmp_path,
         '[{"time_s":2,"signal":"P101","value":true,"kind":"Alarm"}]',

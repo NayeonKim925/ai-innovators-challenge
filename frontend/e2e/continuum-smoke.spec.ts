@@ -149,6 +149,12 @@ test("Continuum keeps the handover investigation flow usable without runtime fix
   await page.route("**/api/cases", (route) =>
     route.fulfill({ json: { cases: currentCase.status === "closed" ? [currentCase] : [] } }),
   );
+  await page.route("**/api/shift-workspace?*", (route) =>
+    route.fulfill({ json: { assignee: "Shift B", status: "action_required", summary: { cases: 0, pending_handovers: 0, assigned_open_items: 0, stale_snapshots: 0, blocking_findings: 0 }, items: [] } }),
+  );
+  await page.route("**/api/cases/case_1/structuring-proposals", (route) =>
+    route.fulfill({ json: { case_id: "case_1", case_version: currentCase.version, proposals: [] } }),
+  );
   await page.route("**/api/incidents/case_1/investigations", (route) =>
     route.fulfill({ json: investigation }),
   );
@@ -250,22 +256,22 @@ test("Continuum keeps the handover investigation flow usable without runtime fix
   await page.getByRole("button", { name: "조사 실행", exact: true }).click();
   await expect(page.locator(".candidate").first()).toBeVisible();
   await page.getByRole("button", { name: "확인 업무로 전환" }).click();
-  await expect(page.getByRole("region", { name: "조사 연속성" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "인계 당시", exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "현재 상태" })).toBeVisible();
+  await expect(page.locator(".continuity-comparison")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Packet 발행 당시" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "현재 Case", exact: true })).toBeVisible();
   await expect(page.getByText("기록 버전 0 → 3")).toBeVisible();
   await expect(page.getByText("미해결 업무 item_1: 시작 전 → 완료")).toBeVisible();
   await expect(page.getByText("원인 가설 hyp_1: 미평가 → 지지되지 않음")).toBeVisible();
-  await expect(page.getByRole("region", { name: "Case 개요" })).toContainText("cutoff 7s");
-  const handoverPanel = page.getByRole("region", { name: "인계" });
+  await expect(page.locator(".resume-grid")).toContainText("cutoff 7s");
+  const handoverPanel = page.locator(".case-handover-panel");
   await handoverPanel.getByLabel("인계자").fill("Shift A");
   await handoverPanel.getByLabel("인수자").fill("Shift B");
   await handoverPanel.getByRole("button", { name: "사전 점검" }).click();
   await expect(page.getByText("인계 점검을 완료했습니다.")).toBeVisible();
   await handoverPanel.getByRole("button", { name: "Packet 발행" }).click();
-  await expect(handoverPanel).toContainText("수락 대기");
+  await expect(handoverPanel).toContainText("published");
   await handoverPanel.getByRole("button", { name: "인수 확인" }).click();
-  await expect(handoverPanel).toContainText("수락됨");
+  await expect(handoverPanel).toContainText("accepted");
   expect(resumeRequests).toBeGreaterThan(0);
   expect(currentRunRequests).toBeGreaterThan(0);
   await page.locator(".task-form input").fill("Shift A");
@@ -317,6 +323,12 @@ test("Same Case adds R2 while R1 evidence links remain run scoped", async ({ pag
   await page.route("**/api/incidents/case_1", (route) => route.fulfill({ json: incident }));
   await page.route("**/api/cases", (route) =>
     route.fulfill({ json: { cases: [currentCase] } }),
+  );
+  await page.route("**/api/shift-workspace?*", (route) =>
+    route.fulfill({ json: { assignee: "Shift B", status: "action_required", summary: { cases: 1, pending_handovers: 0, assigned_open_items: 1, stale_snapshots: 0, blocking_findings: 0 }, items: [{ case_id: currentCase.id, incident_id: currentCase.incident_id, case_status: currentCase.status, case_version: currentCase.version, priority: 1, reasons: ["assigned_open_item"], next_action: currentCase.next_action, handover_receiver: "Shift B" }] } }),
+  );
+  await page.route("**/api/cases/case_1/structuring-proposals", (route) =>
+    route.fulfill({ json: { case_id: "case_1", case_version: currentCase.version, proposals: [] } }),
   );
   await page.route("**/api/investigations/inv_1", (route) => route.fulfill({ json: r1 }));
   await page.route("**/api/investigations/inv_2", (route) => route.fulfill({ json: r2 }));
@@ -407,40 +419,44 @@ test("Same Case adds R2 while R1 evidence links remain run scoped", async ({ pag
   await page.goto("/");
   await page.getByRole("button", { name: "Case 상세" }).click();
   await page.locator(".case-list-item").click();
-  await expect(page.getByRole("region", { name: "분석 이력" })).toBeVisible();
+  await expect(page.getByText("Run History")).toBeVisible();
+  await expect(page.getByText("cutoff 140s", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("새 cutoff (초)")).toHaveValue("140");
   await page.getByLabel("새 cutoff (초)").fill("170");
   await page.getByLabel("실행자").fill("Shift B");
-  await page.getByRole("button", { name: "재분석 실행" }).click();
+  await expect(page.getByLabel("새 cutoff (초)")).toHaveValue("170");
+  await page.getByRole("button", { name: "Add Analysis Run" }).click();
 
   await expect(page.getByText("LP_Pump_Ok", { exact: true }).first()).toBeVisible();
   await expect(page.getByText(/현재 Run/)).toBeVisible();
   expect(postedCutoff).toBe(170);
 
+  await page.getByRole("button", { name: "교대 워크스페이스" }).click();
+  const shiftCard = page.getByRole("article", { name: "Case case_1" });
+  await shiftCard.getByText("조사 세부 정보").click();
+  await expect(shiftCard.locator(".shift-candidates")).toContainText("LP_Pump_Ok");
   await page.getByRole("button", { name: "Case 상세" }).click();
   await expect(page.getByText("R1", { exact: true })).toBeVisible();
   await expect(page.getByText("R2", { exact: true })).toBeVisible();
-  const openItemPanel = page.getByRole("region", { name: "미해결 업무 관리" });
-  await expect(openItemPanel.getByText(/분석 R1 · run_1/)).toBeVisible();
-  await expect(openItemPanel.getByText(/분석 R2 · run_2/)).toBeVisible();
-  const hypothesisPanel = page.getByRole("region", { name: "원인 가설 평가" });
-  await hypothesisPanel.locator(".case-management-entry > button").first().click();
-  await hypothesisPanel.getByLabel("판단자").fill("Shift B");
-  await hypothesisPanel.getByRole("combobox", { name: "판단" }).selectOption("not_supported");
-  await hypothesisPanel.getByLabel("판단 이유").fill("추가 관측과 일치하지 않음");
-  await hypothesisPanel.getByRole("button", { name: "가설 판단 기록" }).click();
+  const stateEditor = page.getByRole("region", { name: "조사 상태 업데이트" });
+  const openItems = stateEditor.locator(".state-editor-column").first().locator(".state-editor-card");
+  const hypotheses = stateEditor.locator(".state-editor-column").nth(1).locator(".state-editor-card");
+  await expect(openItems.first()).toContainText("분석 R1 · run_1");
+  await expect(openItems.nth(1)).toContainText("분석 R2 · run_2");
+  await hypotheses.first().getByLabel("판단 근거").fill("추가 관측과 일치하지 않음");
+  await hypotheses.first().getByRole("combobox", { name: "판단" }).selectOption("not_supported");
   await expect(page.getByText("원인 가설 hyp_1: 미평가 → 지지되지 않음")).toBeVisible();
-  await expect(page.locator(".continuity-state.current").getByText("지지되지 않음")).toBeVisible();
+  await expect(page.locator(".continuity-state.current").getByText("not_supported")).toBeVisible();
   expect(postedHypothesis).toMatchObject({ expected_version: 1, judgment: "not_supported", updated_by: "Shift B", supporting_observation_ids: [], opposing_evidence_ids: [] });
 
-  await openItemPanel.getByRole("button", { name: /Verify LP_Pump_Ok evidence/ }).click();
-  await openItemPanel.getByLabel("담당자").fill("Shift B");
-  await openItemPanel.getByRole("combobox", { name: "상태" }).selectOption("resolved");
-  await openItemPanel.getByLabel("완료 기록").fill("R2 근거 확인 기록");
-  await openItemPanel.getByRole("button", { name: "업무 변경 저장" }).click();
-  await expect(openItemPanel.getByText("완료 · 담당 Shift B")).toBeVisible();
+  await openItems.nth(1).getByLabel("담당자").fill("Shift B");
+  await openItems.nth(1).getByRole("combobox", { name: "상태" }).selectOption("resolved");
+  await openItems.nth(1).getByLabel("완료 메모").fill("R2 근거 확인 기록");
+  await openItems.nth(1).getByRole("button", { name: "Open Item 저장" }).click();
+  await expect(openItems.nth(1)).toContainText("resolved");
   expect(postedOpenItem).toMatchObject({ expected_version: 2, status: "resolved", assignee: "Shift B", completion_note: "R2 근거 확인 기록" });
 
-  await openItemPanel.locator(".case-management-entry").nth(1).getByRole("button", { name: "근거 E1" }).click();
+  await openItems.nth(1).getByRole("button", { name: "근거 E1" }).click();
   await expect(page.getByRole("heading", { name: "활성 알람: LP_Pump_Ok" })).toBeVisible();
   await page.getByRole("button", { name: "Case 상세" }).click();
   await page.locator(".evidence-task").first().getByRole("button", { name: /근거 E1/ }).click();

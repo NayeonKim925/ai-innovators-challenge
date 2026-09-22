@@ -2,6 +2,8 @@
 
 `IMPLEMENTATION_PLAN.md`의 M0~M5와 트랙 A~F를 기준으로 업데이트합니다. 완료가 아닌 작업은 상태를 `진행 중`, `대기`, `차단됨` 중 하나로 표시합니다.
 
+> 이 로그는 causRCA/Metal Etch benchmark 구축(M0~M1) 시점 이후 갱신되지 않았습니다. Continuum 전환(Handover, Shift Workspace 등) 이후의 실제 진행 기록은 [NEXT_DEVELOPMENT_PLAN.md의 5.1 진행 기록](NEXT_DEVELOPMENT_PLAN.md#51-진행-기록)을 확인합니다.
+
 | 날짜 | 트랙 | 작업 | 담당 | 상태 | PR/커밋 | blocker / 다음 행동 |
 | --- | --- | --- | --- | --- | --- | --- |
 | 2026-09-11 | 공통 | 공통 계약·초기 API·문서 기반 구축 | Codex | 완료 | `f71f3c8` | M0 데이터 준비 시작 |

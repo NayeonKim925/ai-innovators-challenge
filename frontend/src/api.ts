@@ -86,6 +86,12 @@ export type HandoverStatus =
   | "changes_requested"
   | "accepted"
   | "superseded";
+export type ShiftWorkspaceFilter =
+  | "all"
+  | "action_required"
+  | "handover"
+  | "open_items"
+  | "stale";
 export interface AnalysisRun {
   id: string;
   investigation_id: string;
@@ -107,6 +113,7 @@ export interface OperatorObservation {
   source_location: string;
   provenance: "actual" | "synthetic_demo" | "simulated";
   approved: boolean;
+  is_current_state: boolean;
 }
 export interface OpenItem {
   id: string;
@@ -164,6 +171,8 @@ export interface Handover {
   snapshot_id: string;
   status: HandoverStatus;
   exception_reason: string;
+  exception_approved_by: string | null;
+  exception_approved_role: string | null;
   change_request: string;
   created_at: string;
   published_at: string;
@@ -177,6 +186,7 @@ export interface ResumeObservation {
   author: string;
   recorded_at: string;
   provenance: "actual" | "synthetic_demo" | "simulated";
+  is_current_state: boolean;
 }
 export type HandoverDelta =
   | {
@@ -231,6 +241,8 @@ export interface CaseEvent {
   event_type: string;
   detail: string;
   actor: "case_orchestrator" | "expert" | "operator" | "analyst" | "system";
+  actor_id?: string | null;
+  actor_role?: "operator" | "shift_lead" | "supervisor" | "maintenance_lead" | "admin" | null;
   evidence_ids: string[];
   trace_steps: number[];
   created_at: string;
@@ -265,11 +277,70 @@ export interface InvestigationCase {
   created_at: string;
   updated_at: string;
 }
+export interface ShiftWorkspaceItem {
+  case_id: string;
+  incident_id: string;
+  case_status: CaseStatus;
+  case_version: number;
+  priority: number;
+  reasons: string[];
+  next_action: string;
+  handover_status: HandoverStatus | null;
+  handover_receiver: string | null;
+  pending_handover: boolean;
+  stale_snapshot: boolean;
+  blocking_findings: HandoverFinding[];
+  open_items: OpenItem[];
+  hypotheses: HypothesisTrack[];
+  updated_at: string;
+}
+export interface ShiftWorkspace {
+  assignee: string | null;
+  status: ShiftWorkspaceFilter;
+  summary: {
+    cases: number;
+    pending_handovers: number;
+    assigned_open_items: number;
+    stale_snapshots: number;
+    blocking_findings: number;
+  };
+  items: ShiftWorkspaceItem[];
+}
 export interface ChatResponse {
   answer: string;
   grounded_evidence_ids: string[];
   blocked: boolean;
   llm_status: string;
+}
+export type StructuringProposalKind = "observation" | "open_item" | "hypothesis";
+export interface StructuringProposal {
+  id: string;
+  case_id: string;
+  case_version: number;
+  kind: StructuringProposalKind;
+  source_text: string;
+  source_span: [number, number];
+  confidence: number;
+  missing_evidence: string[];
+  suggested_observation: string | null;
+  suggested_open_item_title: string | null;
+  suggested_open_item_role: "operator" | "process_expert" | "equipment_expert" | null;
+  target_hypothesis_id: string | null;
+  suggested_judgment: "unreviewed" | "supported" | "not_supported" | "insufficient" | null;
+  suggested_reason: string;
+  author: string;
+  observed_at: string | null;
+  scope: string;
+  source_location: string;
+  provenance: "actual" | "synthetic_demo" | "simulated";
+  llm_status: string;
+  generator: "deterministic" | "llm";
+  created_at: string;
+}
+export interface StructuringProposalResponse {
+  case_id: string;
+  case_version: number;
+  proposals: StructuringProposal[];
 }
 export interface Health {
   status: string;

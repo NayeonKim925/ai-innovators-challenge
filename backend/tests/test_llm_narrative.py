@@ -143,3 +143,75 @@ def test_generate_narrative_applies_guardrail_to_input_and_output(
     assert narrative == "[E1] 근거에 연결된 후보입니다."
     assert calls == ["INPUT", "OUTPUT"]
     assert trace_event.token_usage == 18
+
+
+def test_generate_narrative_uses_competition_gateway_chat_shape(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The gateway path is OpenAI-compatible but keeps the same evidence gate."""
+    from app.domain import Candidate, Evidence
+
+    class Message:
+        content = "[E1] 게이트웨이 응답입니다."
+
+    class Choice:
+        message = Message()
+
+    class Usage:
+        prompt_tokens = 12
+        completion_tokens = 7
+
+    class Completions:
+        def create(self, **kwargs: object) -> object:
+            assert kwargs["model"] == "bedrock-haiku"
+            assert kwargs["temperature"] == 0
+            assert kwargs["messages"][0]["role"] == "system"  # type: ignore[index]
+            return type("GatewayResponse", (), {"choices": [Choice()], "usage": Usage()})()
+
+    class FakeClient:
+        chat = type("Chat", (), {"completions": Completions()})()
+
+    monkeypatch.setenv("LLM_PROVIDER", "competition_gateway")
+    monkeypatch.setenv("LLM_MODEL", "bedrock-haiku")
+    monkeypatch.setattr("app.llm.explainer.build_client", lambda: FakeClient())
+    monkeypatch.setattr("app.llm.explainer.apply_guardrail", lambda *_args: None)
+
+    result = InvestigationResult(
+        incident_id="case_1",
+        dataset=DatasetName.CAUSRCA,
+        diagnosis_time=5,
+        candidates=[Candidate(rank=1, signal="P101", reason="alarm", evidence_ids=["E1"])],
+        evidence=[Evidence(id="E1", title="Alarm", detail="P101 at t=2", source="runtime")],
+        trace=[],
+        warnings=[],
+        next_action="check",
+    )
+
+    narrative, trace_event = generate_narrative(result)
+
+    assert narrative == "[E1] 게이트웨이 응답입니다."
+    assert trace_event.token_usage == 19
+    assert "competition_gateway / bedrock-haiku" in trace_event.detail
+
+
+def test_gateway_model_defaults_split_by_task(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.llm.bedrock_client import llm_model_id
+
+    monkeypatch.setenv("LLM_PROVIDER", "competition_gateway")
+    monkeypatch.delenv("LLM_MODEL", raising=False)
+    monkeypatch.delenv("LLM_STRUCTURING_MODEL", raising=False)
+
+    assert llm_model_id() == "bedrock-gpt-5.6-terra"
+    assert llm_model_id("structuring") == "bedrock-haiku"
+
+
+def test_gateway_accepts_the_competition_guide_api_key_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.llm.bedrock_client import llm_api_key
+
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.setenv("API_KEY", "guide-key")
+
+    assert llm_api_key() == "guide-key"

@@ -41,15 +41,16 @@ import type {
   IncidentSummary,
   InvestigationCase,
   Investigation,
+  HypothesisTrack,
+  OpenItem,
+  OpenItemStatus,
   Report,
   Review,
   ExpertResponseOutcome,
   HandoverFinding,
-  HypothesisTrack,
-  OpenItem,
-  OpenItemStatus,
-  HandoverStatus,
+  StructuringProposal,
 } from "./api";
+import { ShiftWorkspace } from "./ShiftWorkspace";
 import { describeHandoverDelta, snapshotEntities } from "./resume";
 import {
   displayCaseEventDetail,
@@ -57,10 +58,10 @@ import {
   displayText,
 } from "./presentation";
 import { brand } from "./brand";
-import { ShiftWorkspace } from "./ShiftWorkspace";
 
-type Page = "workspace" | "shift" | "cases" | "history" | "datasets" | "guide";
+type Page = "shift" | "workspace" | "cases" | "history" | "datasets" | "guide";
 type Tab = "signals" | "results" | "review" | "chat";
+type CaseInboxFilter = "all" | "action" | "handover" | "closed";
 type Saved = { id: string; incident: string; at: string };
 const message = (e: unknown) =>
   e instanceof Error ? e.message : "요청을 처리하지 못했습니다.";
@@ -70,26 +71,6 @@ const caseStatusLabel: Record<InvestigationCase["status"], string> = {
   reopened: "재개됨",
   abstained: "판단 보류",
   closed: "종료됨",
-};
-const openItemStatusLabel: Record<OpenItemStatus, string> = {
-  not_started: "시작 전",
-  unavailable: "확인 불가",
-  not_recorded: "기록 없음",
-  resolved: "완료",
-  on_hold: "보류",
-};
-const hypothesisJudgmentLabel: Record<HypothesisTrack["judgment"], string> = {
-  unreviewed: "미평가",
-  supported: "지지",
-  not_supported: "지지되지 않음",
-  insufficient: "근거 부족",
-};
-const handoverStatusLabel: Record<HandoverStatus, string> = {
-  draft: "작성 중",
-  published: "수락 대기",
-  changes_requested: "설명 요청",
-  accepted: "수락됨",
-  superseded: "이전 인계",
 };
 function readHistory(): Saved[] {
   try {
@@ -252,9 +233,10 @@ export default function App() {
   const [caseChatBusy, setCaseChatBusy] = useState(false);
   const [caseChatIncludeAI, setCaseChatIncludeAI] = useState(false);
   const [cases, setCases] = useState<InvestigationCase[]>([]);
-  const [shiftActor, setShiftActor] = useState("Shift B");
   const [activeCase, setActiveCase] = useState<InvestigationCase | null>(null);
   const [casesAvailable, setCasesAvailable] = useState(true);
+  const [caseInboxFilter, setCaseInboxFilter] = useState<CaseInboxFilter>("all");
+  const [shiftAssignee, setShiftAssignee] = useState("Shift B");
   const [caseBusy, setCaseBusy] = useState(false);
   const [taskOutcome, setTaskOutcome] = useState<ExpertResponseOutcome>("confirmed");
   const [taskResponder, setTaskResponder] = useState("");
@@ -263,14 +245,17 @@ export default function App() {
   const [caseComment, setCaseComment] = useState("");
   const [observationText, setObservationText] = useState("");
   const [observationAuthor, setObservationAuthor] = useState("");
-  const [selectedOpenItemId, setSelectedOpenItemId] = useState("");
+  const [observationIsCurrentState, setObservationIsCurrentState] = useState(false);
   const [openItemAssignee, setOpenItemAssignee] = useState("");
-  const [openItemStatus, setOpenItemStatus] = useState<OpenItemStatus>("not_started");
-  const [openItemCompletionNote, setOpenItemCompletionNote] = useState("");
-  const [selectedHypothesisId, setSelectedHypothesisId] = useState("");
-  const [hypothesisJudgment, setHypothesisJudgment] = useState<Exclude<HypothesisTrack["judgment"], "unreviewed">>("insufficient");
-  const [hypothesisUpdatedBy, setHypothesisUpdatedBy] = useState("");
-  const [hypothesisReason, setHypothesisReason] = useState("");
+  const [openItemDrafts, setOpenItemDrafts] = useState<Record<string, { status: OpenItemStatus; assignee: string; note: string }>>({});
+  const [hypothesisReasons, setHypothesisReasons] = useState<Record<string, string>>({});
+  const [structuringNote, setStructuringNote] = useState("");
+  const [structuringAuthor, setStructuringAuthor] = useState("");
+  const [structuringReviewer, setStructuringReviewer] = useState("Shift B");
+  const [structuringIncludeAI, setStructuringIncludeAI] = useState(false);
+  const [structuringProposals, setStructuringProposals] = useState<StructuringProposal[]>([]);
+  const [structuringEdits, setStructuringEdits] = useState<Record<string, string>>({});
+  const [structuringBusy, setStructuringBusy] = useState(false);
   const [handoverSender, setHandoverSender] = useState("");
   const [handoverReceiver, setHandoverReceiver] = useState("");
   const [handoverFindings, setHandoverFindings] = useState<HandoverFinding[]>([]);
@@ -371,6 +356,8 @@ export default function App() {
     if (!activeCase) {
       setResume(null);
       setResumeError("");
+      setStructuringProposals([]);
+      setStructuringEdits({});
       return;
     }
     const ctl = new AbortController();
@@ -411,25 +398,30 @@ export default function App() {
     return () => ctl.abort();
   }, [activeCase?.id, activeCase?.version]);
   useEffect(() => {
+    if (!activeCase) return;
+    const ctl = new AbortController();
+    api<{ case_id: string; case_version: number; proposals: StructuringProposal[] }>(
+      `/cases/${encodeURIComponent(activeCase.id)}/structuring-proposals`,
+      { signal: ctl.signal },
+    )
+      .then((result) => {
+        if (ctl.signal.aborted) return;
+        setStructuringProposals(result.proposals);
+        setStructuringEdits((previous) => {
+          const pending = new Set(result.proposals.map((proposal) => proposal.id));
+          return Object.fromEntries(Object.entries(previous).filter(([id]) => pending.has(id)));
+        });
+      })
+      .catch((error) => {
+        if (!ctl.signal.aborted) setActionError(message(error));
+      });
+    return () => ctl.abort();
+  }, [activeCase?.id, activeCase?.version]);
+  useEffect(() => {
     if (resume?.current_run) {
       setAnalysisRunCutoff(resume.current_run.diagnosis_time);
     }
   }, [resume?.current_run?.id]);
-  useEffect(() => {
-    const item = activeCase?.open_items.find((entry) => entry.id === selectedOpenItemId)
-      || activeCase?.open_items.find((entry) => entry.status !== "resolved")
-      || activeCase?.open_items[0];
-    setSelectedOpenItemId(item?.id || "");
-    setOpenItemAssignee(item?.assignee || "");
-    setOpenItemStatus(item?.status || "not_started");
-    setOpenItemCompletionNote(item?.completion_note || "");
-    const hypothesis = activeCase?.hypotheses.find((entry) => entry.id === selectedHypothesisId)
-      || activeCase?.hypotheses[0];
-    setSelectedHypothesisId(hypothesis?.id || "");
-    setHypothesisJudgment(hypothesis?.judgment === "unreviewed" ? "insufficient" : hypothesis?.judgment || "insufficient");
-    setHypothesisUpdatedBy(hypothesis?.updated_by || "");
-    setHypothesisReason(hypothesis?.change_reason || "");
-  }, [activeCase?.id, activeCase?.version]);
   async function investigate() {
     if (!incident || busy) return;
     const rev = ++revision.current;
@@ -481,6 +473,86 @@ export default function App() {
       ...previous.filter((item) => item.id !== updated.id),
     ]);
   }
+  function proposalText(proposal: StructuringProposal) {
+    return structuringEdits[proposal.id] ??
+      proposal.suggested_observation ??
+      proposal.suggested_open_item_title ??
+      proposal.suggested_reason ??
+      proposal.source_text;
+  }
+  function proposalLabel(kind: StructuringProposal["kind"]) {
+    return kind === "observation" ? "관찰 제안" : kind === "open_item" ? "Open Item 제안" : "가설 판단 제안";
+  }
+  async function createStructuringProposals() {
+    if (!activeCase || !structuringNote.trim() || !structuringAuthor.trim() || structuringBusy) return;
+    setStructuringBusy(true);
+    setActionError("");
+    try {
+      const result = await post<{ case_id: string; case_version: number; proposals: StructuringProposal[] }>(
+        `/cases/${encodeURIComponent(activeCase.id)}/structuring-proposals`,
+        {
+          expected_version: activeCase.version,
+          note: structuringNote.trim(),
+          author: structuringAuthor.trim(),
+          provenance: "synthetic_demo",
+          include_llm: structuringIncludeAI,
+        },
+      );
+      setStructuringProposals(result.proposals);
+      setStructuringEdits({});
+      setStructuringNote("");
+      setNotice(`AI 제안 ${result.proposals.length}건을 만들었습니다. Case 상태에는 아직 반영되지 않았습니다.`);
+    } catch (error) {
+      setActionError(message(error));
+    } finally {
+      setStructuringBusy(false);
+    }
+  }
+  async function acceptStructuringProposal(proposal: StructuringProposal) {
+    if (!activeCase || structuringBusy || proposal.case_version !== activeCase.version) return;
+    setStructuringBusy(true);
+    setActionError("");
+    try {
+      const edited = structuringEdits[proposal.id]?.trim();
+      const updated = await post<InvestigationCase>(
+        `/cases/${encodeURIComponent(activeCase.id)}/structuring-proposals/${encodeURIComponent(proposal.id)}/accept`,
+        {
+          expected_version: activeCase.version,
+          accepted_by: structuringReviewer.trim() || shiftAssignee.trim() || "Shift B",
+          edited_text: edited || undefined,
+        },
+      );
+      replaceCase(updated);
+      setStructuringProposals((previous) => previous.filter((item) => item.id !== proposal.id));
+      setStructuringEdits((previous) => {
+        const next = { ...previous };
+        delete next[proposal.id];
+        return next;
+      });
+      setNotice(`${proposalLabel(proposal.kind)}을 검토 후 Case에 반영했습니다. 나머지 제안은 새 버전 확인이 필요합니다.`);
+    } catch (error) {
+      setActionError(message(error));
+    } finally {
+      setStructuringBusy(false);
+    }
+  }
+  async function dismissStructuringProposal(proposal: StructuringProposal) {
+    if (!activeCase || structuringBusy) return;
+    setStructuringBusy(true);
+    setActionError("");
+    try {
+      await post<{ proposal_id: string; status: string }>(
+        `/cases/${encodeURIComponent(activeCase.id)}/structuring-proposals/${encodeURIComponent(proposal.id)}/dismiss`,
+        { dismissed_by: structuringReviewer.trim() || shiftAssignee.trim() || "Shift B" },
+      );
+      setStructuringProposals((previous) => previous.filter((item) => item.id !== proposal.id));
+      setNotice("제안을 보류했습니다. Case 상태는 변경되지 않았습니다.");
+    } catch (error) {
+      setActionError(message(error));
+    } finally {
+      setStructuringBusy(false);
+    }
+  }
   async function selectCase(nextCase: InvestigationCase) {
     if (caseBusy) return;
     setCaseBusy(true);
@@ -497,13 +569,86 @@ export default function App() {
       setCaseBusy(false);
     }
   }
+  function openItemDraft(item: OpenItem) {
+    return openItemDrafts[item.id] || {
+      status: item.status,
+      assignee: item.assignee || "",
+      note: item.status === "on_hold" ? item.hold_reason : item.completion_note,
+    };
+  }
+  function updateOpenItemDraft(
+    itemId: string,
+    patch: Partial<{ status: OpenItemStatus; assignee: string; note: string }>,
+  ) {
+    setOpenItemDrafts((previous) => ({
+      ...previous,
+      [itemId]: { ...previous[itemId], ...patch } as { status: OpenItemStatus; assignee: string; note: string },
+    }));
+  }
+  async function updateCaseOpenItem(item: OpenItem) {
+    if (!activeCase || handoverBusy) return;
+    const draft = openItemDraft(item);
+    setHandoverBusy(true);
+    setActionError("");
+    try {
+      const updated = await post<InvestigationCase>(
+        `/cases/${encodeURIComponent(activeCase.id)}/open-items/${encodeURIComponent(item.id)}/updates`,
+        {
+          expected_version: activeCase.version,
+          status: draft.status,
+          assignee: draft.assignee.trim() || null,
+          hold_reason: draft.status === "on_hold" ? draft.note.trim() : "",
+          completion_note: draft.status === "resolved" ? draft.note.trim() : item.completion_note,
+          observation_ids: item.observation_ids,
+        },
+      );
+      replaceCase(updated);
+      setOpenItemDrafts((previous) => {
+        const next = { ...previous };
+        delete next[item.id];
+        return next;
+      });
+      setNotice(`Open Item “${item.title}” 상태를 저장했습니다.`);
+    } catch (error) {
+      setActionError(message(error));
+    } finally {
+      setHandoverBusy(false);
+    }
+  }
+  async function assessCaseHypothesis(
+    hypothesis: HypothesisTrack,
+    judgment: HypothesisTrack["judgment"],
+  ) {
+    if (!activeCase || handoverBusy) return;
+    setHandoverBusy(true);
+    setActionError("");
+    try {
+      const updated = await post<InvestigationCase>(
+        `/cases/${encodeURIComponent(activeCase.id)}/hypotheses/${encodeURIComponent(hypothesis.id)}/assessments`,
+        {
+          expected_version: activeCase.version,
+          judgment,
+          updated_by: shiftAssignee.trim() || handoverReceiver.trim() || "Shift B",
+          change_reason: hypothesisReasons[hypothesis.id]?.trim() || "",
+          supporting_observation_ids: hypothesis.supporting_observation_ids,
+          opposing_evidence_ids: hypothesis.opposing_evidence_ids,
+        },
+      );
+      replaceCase(updated);
+      setNotice(`가설 “${hypothesis.candidate_signal}” 판단을 저장했습니다.`);
+    } catch (error) {
+      setActionError(message(error));
+    } finally {
+      setHandoverBusy(false);
+    }
+  }
   async function showCaseRun(runId: string | null, nextEvidenceId = "") {
     if (!activeCase || caseBusy) return;
     const target = activeCase.analysis_runs.find(
       (item) => item.id === (runId || activeCase.current_run_id),
     );
     if (!target) {
-      setActionError("연결된 분석 기록을 찾을 수 없습니다.");
+      setActionError("연결된 Analysis Run을 찾을 수 없습니다.");
       return;
     }
     setCaseBusy(true);
@@ -548,7 +693,7 @@ export default function App() {
       const current = updated.analysis_runs.find(
         (item) => item.id === updated.current_run_id,
       );
-      if (!current) throw new Error("새 분석이 Case에 기록되지 않았습니다.");
+      if (!current) throw new Error("새 Analysis Run이 Case에 기록되지 않았습니다.");
       displayedCaseRunId.current = current.id;
       const investigation = await api<Investigation>(
         `/investigations/${encodeURIComponent(current.investigation_id)}`,
@@ -558,7 +703,7 @@ export default function App() {
       setEvidenceId(investigation.evidence[0]?.id || "");
       setAnalysisRunQuestion("");
       setNotice(
-        `재분석을 추가했습니다. 이전 분석과 업무는 이력에 보존됩니다.`,
+        `새 Analysis Run ${shortId(current.id)}을 추가했습니다. 이전 Run은 History에 보존됩니다.`,
       );
       setPage("workspace");
       setTab("results");
@@ -655,10 +800,12 @@ export default function App() {
           original_text: observationText.trim(),
           author: observationAuthor.trim(),
           provenance: "synthetic_demo",
+          is_current_state: observationIsCurrentState,
         },
       );
       replaceCase(updated);
       setObservationText("");
+      setObservationIsCurrentState(false);
       setNotice("관찰 원문이 기록되었습니다. 센서값과 분리된 교대 기록입니다.");
     } catch (e) {
       setActionError(message(e));
@@ -666,22 +813,10 @@ export default function App() {
       setHandoverBusy(false);
     }
   }
-  function selectOpenItem(item: OpenItem) {
-    setSelectedOpenItemId(item.id);
-    setOpenItemAssignee(item.assignee || "");
-    setOpenItemStatus(item.status);
-    setOpenItemCompletionNote(item.completion_note);
-  }
-  function selectHypothesis(hypothesis: HypothesisTrack) {
-    setSelectedHypothesisId(hypothesis.id);
-    setHypothesisJudgment(hypothesis.judgment === "unreviewed" ? "insufficient" : hypothesis.judgment);
-    setHypothesisUpdatedBy(hypothesis.updated_by || "");
-    setHypothesisReason(hypothesis.change_reason);
-  }
-  async function updateSelectedOpenItem() {
-    const item = activeCase?.open_items.find((entry) => entry.id === selectedOpenItemId);
-    if (!activeCase || !item || handoverBusy) return;
-    if (openItemStatus === "resolved" && !openItemCompletionNote.trim() && !item.observation_ids.length) return;
+  async function assignFirstOpenItem() {
+    if (!activeCase || !openItemAssignee.trim() || handoverBusy) return;
+    const item = activeCase.open_items.find((candidate) => candidate.status !== "resolved");
+    if (!item) return;
     setHandoverBusy(true);
     setActionError("");
     try {
@@ -689,40 +824,15 @@ export default function App() {
         `/cases/${encodeURIComponent(activeCase.id)}/open-items/${encodeURIComponent(item.id)}/updates`,
         {
           expected_version: activeCase.version,
-          status: openItemStatus,
-          assignee: openItemAssignee.trim() || null,
+          status: item.status,
+          assignee: openItemAssignee.trim(),
           hold_reason: item.hold_reason,
-          completion_note: openItemCompletionNote.trim(),
+          completion_note: item.completion_note,
           observation_ids: item.observation_ids,
         },
       );
       replaceCase(updated);
-      setNotice(`미해결 업무 ${shortId(item.id)} 변경이 기록되었습니다.`);
-    } catch (e) {
-      setActionError(message(e));
-    } finally {
-      setHandoverBusy(false);
-    }
-  }
-  async function assessSelectedHypothesis() {
-    const hypothesis = activeCase?.hypotheses.find((entry) => entry.id === selectedHypothesisId);
-    if (!activeCase || !hypothesis || !hypothesisUpdatedBy.trim() || handoverBusy) return;
-    setHandoverBusy(true);
-    setActionError("");
-    try {
-      const updated = await post<InvestigationCase>(
-        `/cases/${encodeURIComponent(activeCase.id)}/hypotheses/${encodeURIComponent(hypothesis.id)}/assessments`,
-        {
-          expected_version: activeCase.version,
-          judgment: hypothesisJudgment,
-          updated_by: hypothesisUpdatedBy.trim(),
-          change_reason: hypothesisReason.trim(),
-          supporting_observation_ids: hypothesis.supporting_observation_ids,
-          opposing_evidence_ids: hypothesis.opposing_evidence_ids,
-        },
-      );
-      replaceCase(updated);
-      setNotice(`원인 가설 ${shortId(hypothesis.id)} 판단이 기록되었습니다.`);
+      setNotice("Open Item 담당자가 지정되었습니다.");
     } catch (e) {
       setActionError(message(e));
     } finally {
@@ -767,7 +877,7 @@ export default function App() {
       );
       replaceCase(updated);
       setHandoverFindings(updated.handover_snapshots.at(-1)?.findings || []);
-      setNotice("인계 내용을 발행했습니다.");
+      setNotice("버전이 고정된 인계 Packet을 발행했습니다.");
     } catch (e) {
       setActionError(message(e));
     } finally {
@@ -943,19 +1053,8 @@ export default function App() {
     return times.length ? Math.max(...times) : null;
   }, [incident]);
   const evidence = run?.evidence.find((e) => e.id === evidenceId);
-  const selectedOpenItem = activeCase?.open_items.find((item) => item.id === selectedOpenItemId);
-  const selectedHypothesis = activeCase?.hypotheses.find((item) => item.id === selectedHypothesisId);
   const displayedAnalysisRun = activeCase?.analysis_runs.find(
     (item) => item.investigation_id === run?.investigation_id,
-  );
-  const currentCaseRun = activeCase?.analysis_runs.find((item) => item.id === activeCase.current_run_id);
-  const overviewRun = resume?.current_run || currentCaseRun;
-  const overviewRunNumber = activeCase?.analysis_runs.findIndex((item) => item.id === overviewRun?.id) ?? -1;
-  const handoverRun = activeCase?.analysis_runs.find((item) => item.id === resume?.current_snapshot?.current_run_id);
-  const handoverRunNumber = activeCase?.analysis_runs.findIndex((item) => item.id === handoverRun?.id) ?? -1;
-  const newRunSinceHandover = Boolean(
-    resume?.current_snapshot && resume.current_run &&
-    resume.current_snapshot.current_run_id !== resume.current_run.id,
   );
   const snapshotObservations = snapshotEntities(
     resume?.current_snapshot || null,
@@ -970,13 +1069,24 @@ export default function App() {
     "hypotheses",
   );
   const title = {
-    workspace: "새 사건 분석",
     shift: "교대 워크스페이스",
+    workspace: "조사 워크스페이스",
     cases: "Case 상세",
     history: "조사 기록",
     datasets: "데이터셋",
     guide: "사용 안내",
   }[page];
+  const visibleCases = cases.filter((item) => {
+    if (caseInboxFilter === "closed") return item.status === "closed";
+    if (caseInboxFilter === "action") {
+      return item.status !== "closed" && item.tasks.some((task) => task.status === "pending");
+    }
+    if (caseInboxFilter === "handover") {
+      return item.status !== "closed" && item.handovers.length > 0;
+    }
+    return true;
+  });
+
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main">
@@ -989,11 +1099,11 @@ export default function App() {
           aria-label={`${brand.name} ${brand.koreanName} · 조사 홈`}
           onClick={(e) => {
             e.preventDefault();
-            setPage("workspace");
+            setPage("shift");
           }}
         >
           <span className="brand-symbol">
-            <img src="/brand-mark.png" alt="" />
+            <img src="/brand-mark.svg" alt="" />
           </span>
           <span className="brand-wordmark">
             {brand.name}<small>{brand.koreanName} · 근거 중심 조사</small>
@@ -1071,12 +1181,12 @@ export default function App() {
               <div className="eyebrow">INVESTIGATE WITH EVIDENCE</div>
               <h1>{title}</h1>
               <p>
-                {page === "workspace"
+                {page === "shift"
+                  ? "이번 교대의 진행 중인 조사와 우선 확인할 일을 한눈에 봅니다."
+                  : page === "workspace"
                   ? "흩어진 공정 신호를 연결하고, 다음에 확인할 근거를 찾으세요."
-                  : page === "shift"
-                    ? "여러 진행 중 Case의 인계와 미해결 업무를 파악하고 조사를 이어가세요."
                   : page === "cases"
-                    ? "이 사건의 인계 당시 상태와 현재 상태를 비교하고, 미해결 조사를 이어갑니다."
+                    ? "사건의 인계 당시 상태와 현재 조사 내용을 확인하고 이어서 조사합니다."
                   : page === "history"
                     ? "이 브라우저에서 실행한 조사를 다시 확인합니다."
                     : page === "datasets"
@@ -1107,7 +1217,19 @@ export default function App() {
             </div>
           )}
           {actionError && <ErrorBox text={actionError} />}
-          {page === "shift" && <ShiftWorkspace cases={cases} casesAvailable={casesAvailable} incidents={incidents} actor={shiftActor} onActorChange={setShiftActor} onOpen={(item) => { void selectCase(item); setPage("cases"); }} />}
+          {page === "shift" && (
+            <ShiftWorkspace
+              cases={cases}
+              casesAvailable={casesAvailable}
+              incidents={incidents}
+              actor={shiftAssignee}
+              onActorChange={setShiftAssignee}
+              onOpen={(item) => {
+                void selectCase(item);
+                setPage("cases");
+              }}
+            />
+          )}
           {page === "workspace" && (
             <>
               <dl className="overview ledger-summary" aria-label="조사 환경 요약">
@@ -1847,28 +1969,47 @@ export default function App() {
             </>
           )}
           {page === "cases" && (
-            <section className="caseboard" aria-label="Case 목록과 상세">
+            <section className="caseboard" aria-label="교대 워크스페이스 · 사건 인박스">
               {!casesAvailable ? (
                 <Empty
                   title="사건 오케스트레이션을 연결하는 중입니다"
                   detail="현재 연결된 API에는 사건 상태 기능이 없습니다. 최신 백엔드 배포 후 다시 시도해 주세요."
                 />
               ) : (
-                <div className="caseboard-grid">
+                <>
+                  <div className="caseboard-grid">
                   <aside className="case-inbox panel" aria-label="사건 목록">
                     <div className="case-inbox-heading">
                       <div>
-                        <span className="eyebrow">CASES</span>
-                        <h2>Case 목록</h2>
+                        <span className="eyebrow">CASE INBOX</span>
+                        <h2>확인이 필요한 Case</h2>
                       </div>
                       <span className="badge neutral">{cases.length}</span>
                     </div>
                     <p>
-                      Case를 선택해 인계 상태와 남은 조사를 확인하세요.
+                      아직 확인이 끝나지 않아 다음 작업이 필요한 사건만 보여줍니다.
                     </p>
+                    <div className="case-inbox-filters" aria-label="사건 목록 필터">
+                      {([
+                        ["all", "전체", cases.length],
+                        ["action", "내 확인 업무", cases.filter((item) => item.status !== "closed" && item.tasks.some((task) => task.status === "pending")).length],
+                        ["handover", "인수인계", cases.filter((item) => item.status !== "closed" && item.handovers.length > 0).length],
+                        ["closed", "종료됨", cases.filter((item) => item.status === "closed").length],
+                      ] as [CaseInboxFilter, string, number][]).map(([filter, label, count]) => (
+                        <button
+                          className={caseInboxFilter === filter ? "active" : ""}
+                          key={filter}
+                          type="button"
+                          aria-pressed={caseInboxFilter === filter}
+                          onClick={() => setCaseInboxFilter(filter)}
+                        >
+                          {label}<span>{count}</span>
+                        </button>
+                      ))}
+                    </div>
                     <div className="case-list">
-                      {cases.length ? (
-                        cases.map((item) => (
+                      {visibleCases.length ? (
+                        visibleCases.map((item) => (
                           <button
                             className={`case-list-item ${activeCase?.id === item.id ? "selected" : ""}`}
                             key={item.id}
@@ -1882,14 +2023,14 @@ export default function App() {
                                 {caseStatusLabel[item.status]}
                               </span>
                             </div>
-                            <p>{item.tasks.filter((task) => task.status === "pending").length}개 확인 업무 · {shortId(item.id)}</p>
+                            <p>{item.tasks.filter((task) => task.status === "pending").length}개 확인 업무 · 다음 작업 필요</p>
                             <time>{new Date(item.updated_at).toLocaleString("ko-KR")}</time>
                           </button>
                         ))
                       ) : (
                         <Empty
-                          title="열린 사건이 없습니다"
-                          detail="사건 조사에서 근거 분석을 실행한 뒤 ‘확인 업무로 전환’을 선택해 보세요."
+                          title="이 필터에 해당하는 사건이 없습니다"
+                          detail="다른 보기를 선택하거나 새 사건의 확인 업무를 만들어 보세요."
                         />
                       )}
                     </div>
@@ -1898,13 +2039,13 @@ export default function App() {
                     {!activeCase ? (
                       <Empty
                         title="사건을 선택하세요"
-                        detail="왼쪽 목록에서 Case를 선택하면 이전 인계부터 현재 조사까지 이어서 볼 수 있습니다."
+                        detail="왼쪽 인박스에서 사건을 고르면 에이전트 실행 이력과 사람 확인 업무를 볼 수 있습니다."
                       />
                     ) : (
                       <>
                         <div className="case-detail-heading">
                           <div>
-                            <span className="eyebrow">CASE</span>
+                            <span className="eyebrow">EVIDENCE-CLOSURE CASE</span>
                             <h2>사건 {shortId(activeCase.incident_id)}</h2>
                             <p className="mono">{activeCase.id}</p>
                           </div>
@@ -1912,101 +2053,218 @@ export default function App() {
                             {caseStatusLabel[activeCase.status]}
                           </span>
                         </div>
-                        <div className="case-next-action">
-                          <Bot size={20} />
+                        <div className="case-flow" aria-label="Case 진행 단계">
+                          <div className="case-flow-label">이 Case의 흐름</div>
+                          <ol>
+                            <li className="complete"><span>1</span>이상 감지</li>
+                            <li className={activeCase.tasks.length ? "active" : "complete"}><span>2</span>근거 확인</li>
+                            <li className={activeCase.handovers.length ? "active" : "pending"}><span>3</span>교대 인수인계</li>
+                            <li className={activeCase.status === "closed" ? "complete" : "pending"}><span>4</span>해결 확인</li>
+                          </ol>
+                        </div>
+                        <div className="case-state-strip" aria-label="Case 상태 요약">
+                          <div className="case-state-primary">
+                            <span>지금 해야 할 일</span>
+                            <strong>{displayText(activeCase.next_action)}</strong>
+                          </div>
                           <div>
-                            <strong>다음 해야 할 일</strong>
+                            <span>확인 업무</span>
+                            <strong>{activeCase.tasks.filter((task) => task.status === "pending").length}개 남음</strong>
+                          </div>
+                          <div>
+                            <span>미확인 항목</span>
+                            <strong>{activeCase.open_items.filter((item) => item.status !== "resolved").length}개</strong>
+                          </div>
+                          <div>
+                            <span>인수인계</span>
+                            <strong>{activeCase.handovers.length ? "Packet 있음" : "아직 없음"}</strong>
+                          </div>
+                        </div>
+                        <div className="case-next-action">
+                          <ArrowRight size={20} />
+                          <div>
+                            <strong>다음 담당자가 확인할 한 가지</strong>
                             <p>{displayText(activeCase.next_action)}</p>
                           </div>
                         </div>
-                        <section className="case-overview" aria-label="Case 개요">
+                        <section className="case-handover-panel">
                           <div className="section-heading">
-                            <div><span className="eyebrow">CASE</span><h3>사건 개요</h3></div>
-                          </div>
-                          <dl className="resume-grid">
-                            <div><dt>사건</dt><dd>{activeCase.incident_id}</dd></div>
-                            <div><dt>현재 분석</dt><dd>{overviewRun ? `${overviewRunNumber >= 0 ? `R${overviewRunNumber + 1} · ` : ""}cutoff ${overviewRun.diagnosis_time}s` : "분석 기록 없음"}</dd><small className="mono">{overviewRun?.id || ""}</small></div>
-                            <div><dt>최근 인계</dt><dd>{resume?.current_handover ? `${resume.current_handover.sender} → ${resume.current_handover.receiver} · ${resume.current_handover.status}` : "발행 기록 없음"}</dd></div>
-                            <div><dt>미해결 업무</dt><dd>{(resume?.open_items || activeCase.open_items).filter((item) => item.status !== "resolved").length}건</dd></div>
-                          </dl>
-                        </section>
-                        <section className="case-continuity-panel" aria-label="조사 연속성">
-                          <div className="section-heading">
-                            <div><span className="eyebrow">CASE CONTINUITY</span><h3>인계 당시부터 지금까지</h3><p>이전 교대의 상태와 현재 조사 기록을 비교합니다.</p></div>
+                            <div>
+                              <span className="eyebrow">CONTINUUM RESUME</span>
+                              <h3>교대 인수인계 워크스페이스</h3>
+                              <p>
+                                Case {shortId(activeCase.id)} · 버전 {activeCase.version} · 인수와 조사 종료는 별도 상태입니다.
+                              </p>
+                            </div>
                             <RefreshCw size={21} />
                           </div>
-                          {resumeLoading && <div className="resume-loading" role="status"><LoaderCircle className="spin" size={16} /> 최신 인계 상태를 불러오는 중입니다.</div>}
-                          {resumeError && <ErrorBox text={`인계 상태를 불러오지 못했습니다. ${resumeError}`} />}
+                          {resumeLoading && (
+                            <div className="resume-loading" role="status">
+                              <LoaderCircle className="spin" size={16} /> 최신 인계 상태를 불러오는 중입니다.
+                            </div>
+                          )}
+                          {resumeError && <ErrorBox text={`Resume을 불러오지 못했습니다. ${resumeError}`} />}
+                          <div className="resume-grid">
+                            <div>
+                              <strong>현재 상태</strong>
+                              <p>{caseStatusLabel[resume?.status || activeCase.status]} · 최종 원인 미확정</p>
+                            </div>
+                            <div>
+                              <strong>현재 분석 Run</strong>
+                              <p className="mono">{resume?.current_run?.id || activeCase.current_run_id || "기록 없음"}</p>
+                              {resume?.current_run && <small>cutoff {resume.current_run.diagnosis_time}s</small>}
+                            </div>
+                            <div>
+                              <strong>최신 Handover</strong>
+                              <p>
+                                {resume?.current_handover
+                                  ? `${resume.current_handover.sender} → ${resume.current_handover.receiver} · ${resume.current_handover.status}`
+                                  : "발행 기록 없음"}
+                              </p>
+                            </div>
+                            <div>
+                              <strong>남은 Open Item</strong>
+                              <p>{(resume?.open_items || activeCase.open_items).filter((item) => item.status !== "resolved").length}개 · 인계 대상</p>
+                            </div>
+                          </div>
+                          <section className="analysis-run-panel" aria-label="Analysis Run 추가 및 이력">
+                            <div className="analysis-run-controls">
+                              <div>
+                                <span className="eyebrow">SAME CASE ANALYSIS</span>
+                                <h4>더 늦은 시점으로 분석 이어가기</h4>
+                                <p>새 Run을 추가해도 이전 Run과 연결된 근거 업무, Open Item, Hypothesis는 그대로 보존됩니다.</p>
+                              </div>
+                              <form
+                                onSubmit={(event) => {
+                                  event.preventDefault();
+                                  void addCaseAnalysisRun();
+                                }}
+                              >
+                                <label>
+                                  새 cutoff (초)
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step="0.1"
+                                    value={analysisRunCutoff}
+                                    onChange={(event) => setAnalysisRunCutoff(Number(event.target.value))}
+                                  />
+                                </label>
+                                <label>
+                                  실행자
+                                  <input
+                                    value={analysisRunCreator}
+                                    onChange={(event) => setAnalysisRunCreator(event.target.value)}
+                                    placeholder="Shift B 담당자"
+                                    maxLength={120}
+                                  />
+                                </label>
+                                <label className="analysis-run-question">
+                                  조사 질문 (선택)
+                                  <input
+                                    value={analysisRunQuestion}
+                                    onChange={(event) => setAnalysisRunQuestion(event.target.value)}
+                                    placeholder="추가 데이터까지 포함해 다시 확인"
+                                    maxLength={2000}
+                                  />
+                                </label>
+                                <button
+                                  className="button primary"
+                                  disabled={
+                                    !analysisRunCreator.trim() ||
+                                    analysisRunBusy ||
+                                    activeCase.status === "closed" ||
+                                    analysisRunCutoff <= (resume?.current_run?.diagnosis_time ?? -1)
+                                  }
+                                >
+                                  {analysisRunBusy ? <LoaderCircle className="spin" size={15} /> : <Play size={15} />}
+                                  Add Analysis Run
+                                </button>
+                              </form>
+                              {resume?.current_run && analysisRunCutoff <= resume.current_run.diagnosis_time && (
+                                <small>현재 cutoff {resume.current_run.diagnosis_time}s보다 늦은 시점을 입력해 주세요.</small>
+                              )}
+                            </div>
+                            <div className="analysis-run-history">
+                              <strong>Run History</strong>
+                              <ol>
+                                {activeCase.analysis_runs.map((item, index) => (
+                                  <li key={item.id}>
+                                    <span className="run-order">R{index + 1}</span>
+                                    <div>
+                                      <code>{item.id}</code>
+                                      <small>cutoff {item.diagnosis_time}s · {new Date(item.created_at).toLocaleString("ko-KR")}</small>
+                                    </div>
+                                    {item.id === activeCase.current_run_id && <span className="badge teal">현재</span>}
+                                    <button
+                                      className="button secondary compact"
+                                      disabled={caseBusy}
+                                      onClick={() => void showCaseRun(item.id)}
+                                    >
+                                      결과 보기
+                                    </button>
+                                  </li>
+                                ))}
+                              </ol>
+                            </div>
+                          </section>
                           {resume && (
-                            <div className="continuity-comparison" aria-label="인계 당시와 현재 상태 비교">
+                            <div className="continuity-comparison" aria-label="Handover 당시와 현재 상태 비교">
                               <section className="continuity-state at-handover">
                                 <span className="eyebrow">AT HANDOVER</span>
-                                <h4>인계 당시</h4>
+                                <h4>Packet 발행 당시</h4>
                                 {resume.current_snapshot ? (
                                   <>
                                     <p className="continuity-meta">
-                                      인계 발행 시점 · 기록 {shortId(resume.current_snapshot.id)} · 버전 {resume.current_snapshot.source_case_version}
+                                      Case 버전 {resume.current_snapshot.source_case_version} · Snapshot {shortId(resume.current_snapshot.id)}
                                     </p>
                                     <dl className="continuity-facts">
-                                      <div><dt>당시 분석</dt><dd>{handoverRun ? `R${handoverRunNumber + 1} · cutoff ${handoverRun.diagnosis_time}s` : "기록 없음"}<small className="mono">{resume.current_snapshot.current_run_id || ""}</small></dd></div>
-                                      <div><dt>관찰 기록</dt><dd>{snapshotObservations.length}개</dd></div>
-                                      <div><dt>미해결 업무</dt><dd>{snapshotOpenItems.filter((item) => item.status !== "resolved").length}건</dd></div>
+                                      <div><dt>Run</dt><dd className="mono">{resume.current_snapshot.current_run_id || "기록 없음"}</dd></div>
+                                      <div><dt>Observation</dt><dd>{snapshotObservations.length}개</dd></div>
+                                      <div><dt>Open Item</dt><dd>{snapshotOpenItems.length}개 · 미해결 {snapshotOpenItems.filter((item) => item.status !== "resolved").length}개</dd></div>
                                     </dl>
                                     <div className="continuity-list">
-                                      <strong>관찰 기록</strong>
-                                      {snapshotObservations.length ? <ul>{snapshotObservations.map((item) => <li key={item.id}><span>{item.original_text}</span><small>{item.author}</small></li>)}</ul> : <p>기록 없음</p>}
-                                    </div>
-                                    <div className="continuity-list">
-                                      <strong>미해결 업무</strong>
-                                      {snapshotOpenItems.some((item) => item.status !== "resolved") ? <ul>{snapshotOpenItems.filter((item) => item.status !== "resolved").map((item) => <li key={item.id}><span>{item.title}</span><code>{openItemStatusLabel[item.status]}</code></li>)}</ul> : <p>없음</p>}
-                                    </div>
-                                    <div className="continuity-list">
-                                      <strong>원인 가설</strong>
+                                      <strong>Hypothesis</strong>
                                       {snapshotHypotheses.length ? (
-                                        <ul>{snapshotHypotheses.map((item) => <li key={item.id}><span>{item.candidate_signal}</span><code>{hypothesisJudgmentLabel[item.judgment]}</code></li>)}</ul>
+                                        <ul>{snapshotHypotheses.map((item) => <li key={item.id}><span>{item.candidate_signal}</span><code>{item.judgment}</code></li>)}</ul>
                                       ) : <p>기록 없음</p>}
                                     </div>
                                   </>
                                 ) : (
-                                  <p className="continuity-empty">아직 발행된 인계가 없습니다.</p>
+                                  <p className="continuity-empty">아직 발행된 Handover Snapshot이 없습니다.</p>
                                 )}
                               </section>
                               <section className="continuity-state current">
                                 <span className="eyebrow">CURRENT</span>
-                                <h4>현재 상태</h4>
+                                <h4>현재 Case</h4>
                                 <p className="continuity-meta">
                                   Case 버전 {resume.case_version} · {caseStatusLabel[resume.status]}
                                 </p>
                                 <dl className="continuity-facts">
-                                  <div><dt>현재 분석</dt><dd>{resume.current_run ? `${overviewRunNumber >= 0 ? `R${overviewRunNumber + 1} · ` : ""}cutoff ${resume.current_run.diagnosis_time}s` : "기록 없음"}<small className="mono">{resume.current_run?.id || ""}</small></dd></div>
-                                  <div><dt>관찰 기록</dt><dd>{resume.observations.length}개</dd></div>
-                                  <div><dt>미해결 업무</dt><dd>{resume.open_items.filter((item) => item.status !== "resolved").length}건</dd></div>
+                                  <div><dt>Run</dt><dd className="mono">{resume.current_run?.id || "기록 없음"}</dd></div>
+                                  <div><dt>Observation</dt><dd>{resume.observations.length}개</dd></div>
+                                  <div><dt>Open Item</dt><dd>{resume.open_items.length}개 · 미해결 {resume.open_items.filter((item) => item.status !== "resolved").length}개</dd></div>
                                 </dl>
                                 <div className="continuity-list">
-                                  <strong>관찰 기록</strong>
-                                  {resume.observations.length ? <ul>{resume.observations.map((item) => <li key={item.id}><span>{item.text}</span><small>{item.author}</small></li>)}</ul> : <p>기록 없음</p>}
-                                </div>
-                                <div className="continuity-list">
-                                  <strong>미해결 업무</strong>
+                                  <strong>미해결 Open Item</strong>
                                   {resume.open_items.some((item) => item.status !== "resolved") ? (
-                                    <ul>{resume.open_items.filter((item) => item.status !== "resolved").map((item) => <li key={item.id}><span>{item.title}</span><code>{openItemStatusLabel[item.status]}</code></li>)}</ul>
+                                    <ul>{resume.open_items.filter((item) => item.status !== "resolved").map((item) => <li key={item.id}><span>{item.title}</span><code>{item.status}</code></li>)}</ul>
                                   ) : <p>없음</p>}
                                 </div>
                                 <div className="continuity-list">
-                                  <strong>원인 가설</strong>
+                                  <strong>Hypothesis</strong>
                                   {resume.hypotheses.length ? (
-                                    <ul>{resume.hypotheses.map((item) => <li key={item.id}><span>{item.candidate_signal}</span><code>{hypothesisJudgmentLabel[item.judgment]}</code></li>)}</ul>
+                                    <ul>{resume.hypotheses.map((item) => <li key={item.id}><span>{item.candidate_signal}</span><code>{item.judgment}</code></li>)}</ul>
                                   ) : <p>기록 없음</p>}
                                 </div>
                               </section>
                               <section className="handover-delta">
-                                <span className="eyebrow">CONTINUITY</span>
+                                <span className="eyebrow">CHANGES SINCE HANDOVER</span>
                                 <h4>인계 이후 변경</h4>
                                 {!resume.current_snapshot ? (
-                                  <p>인계를 발행하면 이후의 변경을 비교할 수 있습니다.</p>
-                                ) : resume.handover_delta.length || newRunSinceHandover ? (
+                                  <p>Snapshot 발행 후 변경을 비교할 수 있습니다.</p>
+                                ) : resume.handover_delta.length ? (
                                   <ul>
-                                    {newRunSinceHandover && <li><ChevronRight size={14} /><span>새 분석 실행 · cutoff {resume.current_run?.diagnosis_time}s</span></li>}
                                     {resume.handover_delta.map((delta, index) => (
                                       <li key={`${delta.kind}-${"id" in delta ? delta.id : index}`}>
                                         <ChevronRight size={14} />
@@ -2015,72 +2273,399 @@ export default function App() {
                                     ))}
                                   </ul>
                                 ) : (
-                                  <p>인계 이후 기록된 변경이 없습니다.</p>
+                                  <p>Handover 이후 기록된 변경이 없습니다.</p>
                                 )}
                               </section>
                             </div>
                           )}
-                        </section>
-                        <section className="case-work-section" aria-label="해야 할 일">
-                          <div className="case-section-heading"><span className="eyebrow">ACTION</span><h3>해야 할 일</h3><p>미해결 업무의 담당과 상태를 관리하고 연결된 근거를 확인합니다.</p></div>
-                          <div className="case-work-grid">
-                            <section className="case-management-panel" aria-label="미해결 업무 관리">
-                              <h4>미해결 업무</h4>
-                              {activeCase.open_items.map((item) => (
-                                <div className="case-management-entry" key={item.id}>
-                                  <button
-                                    className={selectedOpenItemId === item.id ? "selected" : ""}
-                                    aria-pressed={selectedOpenItemId === item.id}
-                                    onClick={() => selectOpenItem(item)}
-                                  >
-                                    <strong>{item.title}</strong>
-                                    <span>{openItemStatusLabel[item.status]} · 담당 {item.assignee || "미지정"}</span>
-                                    <code>분석 {activeCase.analysis_runs.findIndex((run) => run.id === item.run_id) >= 0 ? `R${activeCase.analysis_runs.findIndex((run) => run.id === item.run_id) + 1}` : "기록 없음"} · {item.run_id || ""}</code>
-                                  </button>
-                                  <div className="task-references">
-                                    {item.evidence_ids.map((id) => (
-                                      <button
-                                        key={id}
-                                        disabled={!item.run_id && activeCase.analysis_runs.length !== 1}
-                                        onClick={() => void showCaseRun(item.run_id || activeCase.analysis_runs[0]?.id || null, id)}
-                                      >
-                                        근거 {id}
+                          <section className="case-state-editor" aria-label="조사 상태 업데이트">
+                            <div className="section-heading">
+                              <div>
+                                <span className="eyebrow">INVESTIGATION STATE</span>
+                                <h3>남은 업무와 가설 상태</h3>
+                                <p>각 Open Item과 Hypothesis는 Case 버전을 확인한 뒤 독립적으로 저장됩니다.</p>
+                              </div>
+                              <ShieldCheck size={20} />
+                            </div>
+                            <div className="state-editor-grid">
+                              <div className="state-editor-column">
+                                <strong className="state-editor-label">OPEN ITEMS <span>{activeCase.open_items.length}</span></strong>
+                                {activeCase.open_items.length ? activeCase.open_items.map((item) => {
+                                  const draft = openItemDraft(item);
+                                  return (
+                                    <div className="state-editor-card" key={item.id}>
+                                      <div className="state-editor-card-heading">
+                                        <strong>{item.title}</strong>
+                                        <code>{item.status}</code>
+                                      </div>
+                                      <p className="state-editor-footnote">
+                                        분석 {activeCase.analysis_runs.findIndex((run) => run.id === item.run_id) >= 0
+                                          ? `R${activeCase.analysis_runs.findIndex((run) => run.id === item.run_id) + 1}`
+                                          : "기록 없음"} · {item.run_id || "legacy"}
+                                      </p>
+                                      <div className="task-references">
+                                        {item.evidence_ids.map((id) => (
+                                          <button
+                                            key={id}
+                                            type="button"
+                                            disabled={!item.run_id && activeCase.analysis_runs.length !== 1}
+                                            onClick={() => void showCaseRun(item.run_id || activeCase.analysis_runs[0]?.id || null, id)}
+                                          >
+                                            근거 {id}
+                                          </button>
+                                        ))}
+                                        {!item.evidence_ids.length && <span>연결된 근거 없음</span>}
+                                      </div>
+                                      <div className="state-editor-fields">
+                                        <label>
+                                          상태
+                                          <select
+                                            value={draft.status}
+                                            onChange={(event) => updateOpenItemDraft(item.id, { status: event.target.value as OpenItemStatus })}
+                                          >
+                                            <option value="not_started">미착수</option>
+                                            <option value="unavailable">확인 불가</option>
+                                            <option value="not_recorded">미기록</option>
+                                            <option value="on_hold">보류</option>
+                                            <option value="resolved">완료</option>
+                                          </select>
+                                        </label>
+                                        <label>
+                                          담당자
+                                          <input
+                                            value={draft.assignee}
+                                            onChange={(event) => updateOpenItemDraft(item.id, { assignee: event.target.value })}
+                                            placeholder="Shift B"
+                                            maxLength={120}
+                                          />
+                                        </label>
+                                      </div>
+                                      <label>
+                                        {draft.status === "on_hold" ? "보류 사유" : draft.status === "resolved" ? "완료 메모" : "상태 메모"}
+                                        <input
+                                          value={draft.note}
+                                          onChange={(event) => updateOpenItemDraft(item.id, { note: event.target.value })}
+                                          placeholder="다음 담당자가 이해할 수 있는 근거를 남겨 주세요"
+                                          maxLength={2000}
+                                        />
+                                      </label>
+                                      <button className="button secondary compact" type="button" disabled={handoverBusy} onClick={() => void updateCaseOpenItem(item)}>
+                                        {handoverBusy ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}
+                                        Open Item 저장
                                       </button>
-                                    ))}
-                                    {!item.evidence_ids.length && <span>연결된 근거 없음</span>}
+                                    </div>
+                                  );
+                                }) : <p className="muted">현재 Open Item이 없습니다.</p>}
+                              </div>
+                              <div className="state-editor-column">
+                                <strong className="state-editor-label">HYPOTHESES <span>{activeCase.hypotheses.length}</span></strong>
+                                {activeCase.hypotheses.length ? activeCase.hypotheses.map((hypothesis) => (
+                                  <div className="state-editor-card" key={hypothesis.id}>
+                                    <div className="state-editor-card-heading">
+                                      <strong>{hypothesis.candidate_signal}</strong>
+                                      <code>{hypothesis.judgment}</code>
+                                    </div>
+                                    <p className="state-editor-footnote">
+                                      분석 {activeCase.analysis_runs.findIndex((run) => run.id === hypothesis.run_id) >= 0
+                                        ? `R${activeCase.analysis_runs.findIndex((run) => run.id === hypothesis.run_id) + 1}`
+                                        : "기록 없음"} · {hypothesis.run_id}
+                                    </p>
+                                    <div className="task-references">
+                                      {hypothesis.evidence_ids.map((id) => (
+                                        <button key={id} type="button" onClick={() => void showCaseRun(hypothesis.run_id, id)}>
+                                          근거 {id}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <label>
+                                      판단
+                                      <select
+                                        value={hypothesis.judgment}
+                                        disabled={handoverBusy}
+                                        onChange={(event) => void assessCaseHypothesis(hypothesis, event.target.value as HypothesisTrack["judgment"])}
+                                      >
+                                        <option value="unreviewed">미검토</option>
+                                        <option value="supported">지지</option>
+                                        <option value="not_supported">지지하지 않음</option>
+                                        <option value="insufficient">근거 부족</option>
+                                      </select>
+                                    </label>
+                                    <label>
+                                      판단 근거
+                                      <input
+                                        value={hypothesisReasons[hypothesis.id] ?? hypothesis.change_reason}
+                                        onChange={(event) => setHypothesisReasons((previous) => ({ ...previous, [hypothesis.id]: event.target.value }))}
+                                        placeholder="왜 이 상태로 판단했는지 기록"
+                                        maxLength={2000}
+                                      />
+                                    </label>
+                                    <small className="state-editor-footnote">AI 후보 · 최종 원인 확정 아님</small>
                                   </div>
-                                </div>
-                              ))}
-                              {selectedOpenItem && (
-                                <form onSubmit={(event) => { event.preventDefault(); void updateSelectedOpenItem(); }}>
-                                  <strong>선택: {selectedOpenItem.title}</strong>
-                                  <label>담당자
-                                    <input value={openItemAssignee} onChange={(event) => setOpenItemAssignee(event.target.value)} placeholder="담당자 ID" maxLength={120} />
-                                  </label>
-                                  <label>상태
-                                    <select value={openItemStatus} onChange={(event) => setOpenItemStatus(event.target.value as OpenItemStatus)}>
-                                      <option value="not_started">시작 전</option>
-                                      <option value="unavailable">확인 불가</option>
-                                      <option value="not_recorded">기록 없음</option>
-                                      <option value="on_hold">보류</option>
-                                      <option value="resolved">완료</option>
-                                    </select>
-                                  </label>
-                                  <label>완료 기록
-                                    <textarea value={openItemCompletionNote} onChange={(event) => setOpenItemCompletionNote(event.target.value)} rows={2} maxLength={2000} placeholder="resolved 처리 시 확인 내용 또는 근거 위치" />
-                                  </label>
-                                  <button className="button secondary" disabled={handoverBusy || activeCase.status === "closed" || (openItemStatus === "resolved" && !openItemCompletionNote.trim() && !selectedOpenItem.observation_ids.length)}>
-                                    업무 변경 저장
-                                  </button>
-                                  <small>확인 업무의 응답으로 완료된 항목도 기록에 남습니다.</small>
-                                </form>
+                                )) : <p className="muted">현재 가설 후보가 없습니다.</p>}
+                              </div>
+                            </div>
+                          </section>
+                          <section className="structuring-panel" aria-label="AI 메모 구조화 제안">
+                            <div className="section-heading">
+                              <div>
+                                <span className="eyebrow">REVIEWABLE AI SUGGESTION</span>
+                                <h3>교대 메모를 검토 가능한 제안으로 정리</h3>
+                                <p>AI 제안은 Case 상태와 분리되어 있습니다. 수정하거나 보류한 뒤, 수락한 항목만 저장됩니다.</p>
+                              </div>
+                              <Bot size={20} />
+                            </div>
+                            <form
+                              className="structuring-capture"
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                void createStructuringProposals();
+                              }}
+                            >
+                              <label>
+                                작성자
+                                <input
+                                  value={structuringAuthor}
+                                  onChange={(event) => setStructuringAuthor(event.target.value)}
+                                  placeholder="Shift A 담당자"
+                                  maxLength={120}
+                                />
+                              </label>
+                              <label>
+                                검토자
+                                <input
+                                  value={structuringReviewer}
+                                  onChange={(event) => setStructuringReviewer(event.target.value)}
+                                  placeholder="Shift B 담당자"
+                                  maxLength={120}
+                                />
+                              </label>
+                              <label className="structuring-note-field">
+                                교대 메모 원문
+                                <textarea
+                                  value={structuringNote}
+                                  onChange={(event) => setStructuringNote(event.target.value)}
+                                  placeholder="예: Tool은 육안상 이상 없음. Spindle vibration은 아직 확인하지 못해 다음 교대에서 확인 필요."
+                                  maxLength={4000}
+                                  rows={3}
+                                />
+                              </label>
+                              <div className="structuring-capture-actions">
+                                <label className="checkbox">
+                                  <input
+                                    type="checkbox"
+                                    checked={structuringIncludeAI}
+                                    onChange={(event) => setStructuringIncludeAI(event.target.checked)}
+                                  />
+                                  LLM 보조 사용 <span>(실패 시 결정론적 제안)</span>
+                                </label>
+                                <button className="button primary" disabled={!structuringNote.trim() || !structuringAuthor.trim() || structuringBusy}>
+                                  {structuringBusy ? <LoaderCircle className="spin" size={15} /> : <Bot size={15} />}
+                                  제안 생성
+                                </button>
+                              </div>
+                            </form>
+                            <div className="structuring-proposals" aria-live="polite">
+                              {!structuringProposals.length ? (
+                                <p className="muted">검토 대기 중인 제안이 없습니다. 메모를 입력하면 이곳에 표시됩니다.</p>
+                              ) : (
+                                structuringProposals.map((proposal) => {
+                                  const stale = proposal.case_version !== activeCase.version;
+                                  return (
+                                    <article className={`structuring-proposal ${stale ? "stale" : ""}`} key={proposal.id}>
+                                      <div className="structuring-proposal-heading">
+                                        <div>
+                                          <span className="badge teal">{proposalLabel(proposal.kind)}</span>
+                                          <strong>원문 기반 제안</strong>
+                                        </div>
+                                        <code>Case v{proposal.case_version} · 신뢰도 {Math.round(proposal.confidence * 100)}%</code>
+                                      </div>
+                                      <p className="structuring-source">“{proposal.source_text}”</p>
+                                      <label>
+                                        저장 전 수정
+                                        <textarea
+                                          value={proposalText(proposal)}
+                                          onChange={(event) => setStructuringEdits((previous) => ({ ...previous, [proposal.id]: event.target.value }))}
+                                          maxLength={4000}
+                                          rows={2}
+                                          disabled={structuringBusy}
+                                        />
+                                      </label>
+                                      {proposal.missing_evidence.length > 0 && (
+                                        <p className="structuring-missing"><TriangleAlert size={14} /> 미확인 근거: {proposal.missing_evidence.join(" · ")}</p>
+                                      )}
+                                      {stale && <p className="structuring-stale"><TriangleAlert size={14} /> Case가 변경되어 오래된 제안입니다. 새 버전에서 다시 생성해 주세요.</p>}
+                                      <div className="structuring-proposal-footer">
+                                        <small>{proposal.generator === "llm" ? "LLM 제안" : "규칙 기반 제안"} · {proposal.provenance}</small>
+                                        <div className="button-row">
+                                          <button className="button secondary compact" type="button" disabled={structuringBusy} onClick={() => void dismissStructuringProposal(proposal)}>보류</button>
+                                          <button className="button primary compact" type="button" disabled={structuringBusy || stale} onClick={() => void acceptStructuringProposal(proposal)}><Check size={14} /> 검토 후 저장</button>
+                                        </div>
+                                      </div>
+                                    </article>
+                                  );
+                                })
                               )}
-                            </section>
+                            </div>
+                          </section>
+                          <div className="handover-forms">
+                            <form
+                              className="review-form"
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                void recordCaseObservation();
+                              }}
+                            >
+                              <h4>교대 기록 추가</h4>
+                              <label>
+                                작성자
+                                <input
+                                  value={observationAuthor}
+                                  onChange={(event) => setObservationAuthor(event.target.value)}
+                                  placeholder="Shift A 담당자"
+                                  maxLength={120}
+                                />
+                              </label>
+                              <label>
+                                관찰 원문
+                                <textarea
+                                  value={observationText}
+                                  onChange={(event) => setObservationText(event.target.value)}
+                                  placeholder="완료한 확인, 미실시 점검, 확인하지 못한 이유를 원문으로 남겨 주세요."
+                                  maxLength={4000}
+                                  rows={3}
+                                />
+                              </label>
+                              <label className="checkbox">
+                                <input
+                                  type="checkbox"
+                                  checked={observationIsCurrentState}
+                                  onChange={(event) => setObservationIsCurrentState(event.target.checked)}
+                                />
+                                현재 설비 상태를 함께 확인한 기록입니다
+                              </label>
+                              <button className="button secondary" disabled={!observationText.trim() || !observationAuthor.trim() || handoverBusy}>
+                                {handoverBusy ? <LoaderCircle className="spin" size={15} /> : <ListChecks size={15} />}
+                                관찰 기록
+                              </button>
+                            </form>
+                            <div className="review-form">
+                              <h4>담당자·인계 점검</h4>
+                              <label>
+                                첫 Open Item 담당자
+                                <input
+                                  value={openItemAssignee}
+                                  onChange={(event) => setOpenItemAssignee(event.target.value)}
+                                  placeholder="Shift B 담당자 ID"
+                                  maxLength={120}
+                                />
+                              </label>
+                              <button
+                                className="button secondary"
+                                disabled={!openItemAssignee.trim() || handoverBusy || !activeCase.open_items.some((item) => item.status !== "resolved")}
+                                onClick={() => void assignFirstOpenItem()}
+                              >
+                                담당자 지정
+                              </button>
+                              <div className="form-divider" />
+                              <label>
+                                인계자
+                                <input value={handoverSender} onChange={(event) => setHandoverSender(event.target.value)} placeholder="Shift A" maxLength={120} />
+                              </label>
+                              <label>
+                                인수자
+                                <input value={handoverReceiver} onChange={(event) => setHandoverReceiver(event.target.value)} placeholder="Shift B" maxLength={120} />
+                              </label>
+                              <div className="button-row">
+                                <button className="button secondary" disabled={!handoverSender.trim() || !handoverReceiver.trim() || handoverBusy} onClick={() => void checkCaseHandover()}>
+                                  사전 점검
+                                </button>
+                                <button className="button primary" disabled={!handoverSender.trim() || !handoverReceiver.trim() || handoverBusy} onClick={() => void publishCaseHandover()}>
+                                  Packet 발행
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                          {handoverFindings.length > 0 && (
+                            <div className="disclosure">
+                              <strong>인계 점검 결과</strong>
+                              <ul>
+                                {handoverFindings.map((finding) => (
+                                  <li key={`${finding.code}-${finding.entity_id}`}>
+                                    <span className={`badge ${finding.severity === "blocking" ? "warning" : "neutral"}`}>
+                                      {finding.severity === "blocking" ? "보완 필요" : "전달"}
+                                    </span>{" "}
+                                    {finding.message}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {activeCase.handovers.length > 0 && (() => {
+                            const handover = activeCase.handovers.at(-1)!;
+                            const snapshot = activeCase.handover_snapshots.find((item) => item.id === handover.snapshot_id);
+                            return (
+                              <div className="case-next-action">
+                                <ArrowDownToLine size={19} />
+                                <div>
+                                  <strong>최근 Handover Packet · {handover.status}</strong>
+                                  <p>Snapshot {snapshot?.id || "없음"} · Case 버전 {handover.source_case_version} · {handover.receiver}</p>
+                                </div>
+                                {handover.status === "published" && (
+                                  <div className="button-row">
+                                    <button className="button secondary compact" disabled={handoverBusy} onClick={() => void requestCaseHandoverChanges()}>설명 요청</button>
+                                    <button className="button primary compact" disabled={handoverBusy} onClick={() => void acceptCaseHandover()}><Check size={15} /> 인수 확인</button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </section>
+                        <section className="case-chat-panel">
+                          <div className="section-heading">
+                            <div>
+                              <span className="eyebrow">CASE Q&amp;A</span>
+                              <h3>현재 Case에 질문하기</h3>
+                              <p>현재 상태·Open Item·저장된 관찰과 근거만 사용합니다. 이유가 기록되지 않으면 추정하지 않습니다.</p>
+                            </div>
+                            <MessageSquare size={21} />
+                          </div>
+                          <div className="chat-messages" aria-live="polite">
+                            {!caseChat.length && <p className="muted">예: “지금까지 무엇을 확인했고 무엇이 남았나요?”</p>}
+                            {caseChat.map((turn, index) => (
+                              <div className="chat-turn" key={`${turn.question}-${index}`}>
+                                <p className="chat-question">{turn.question}</p>
+                                <div className="chat-answer">
+                                  <span className="eyebrow">CASE RESUME</span>
+                                  <p>{turn.response.answer}</p>
+                                  <small>{turn.response.llm_status} · 근거 {turn.response.grounded_evidence_ids.join(", ") || "없음"}</small>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <form className="chat-form" onSubmit={(event) => { event.preventDefault(); void askCase(); }}>
+                            <label className="checkbox">
+                              <input type="checkbox" checked={caseChatIncludeAI} onChange={(event) => setCaseChatIncludeAI(event.target.checked)} />
+                              근거 정리 AI 보조 <span>(실패 시 템플릿으로 폴백)</span>
+                            </label>
+                            <label className="sr-only" htmlFor="case-chat-input">Case 질문</label>
+                            <input
+                              id="case-chat-input"
+                              value={caseChatInput}
+                              maxLength={2000}
+                              onChange={(event) => setCaseChatInput(event.target.value)}
+                              placeholder="무엇이 확인됐고 무엇이 남았나요?"
+                            />
+                            <button className="button primary" disabled={!caseChatInput.trim() || caseChatBusy} aria-label="Case 질문 보내기">
+                              {caseChatBusy ? <LoaderCircle className="spin" size={17} /> : <Send size={17} />}
+                            </button>
+                          </form>
+                        </section>
+                        <div className="case-content-grid">
                           <section className="human-queue">
                             <div className="section-heading">
                               <div>
-                                <span className="eyebrow">EVIDENCE CHECK</span>
-                                <h3>확인 업무</h3>
+                                <span className="eyebrow">HUMAN ACTION QUEUE</span>
+                                <h3>전문가 확인 업무</h3>
                               </div>
                               <UserRoundCheck size={21} />
                             </div>
@@ -2105,7 +2690,6 @@ export default function App() {
                                   </span>
                                 </div>
                                 <p>{task.instructions}</p>
-                                <p className="task-context">담당 {activeCase.open_items.find((item) => item.id === task.open_item_id)?.assignee || "미지정"} · 분석 {activeCase.analysis_runs.findIndex((item) => item.id === task.run_id) >= 0 ? `R${activeCase.analysis_runs.findIndex((item) => item.id === task.run_id) + 1}` : "기록 없음"}</p>
                                 <div className="task-references">
                                   {task.evidence_ids.length ? (
                                     task.evidence_ids.map((id) => (
@@ -2117,7 +2701,7 @@ export default function App() {
                                       </button>
                                     ))
                                   ) : (
-                                    <span>추가 관측 요청 · 연결된 근거 없음</span>
+                                    <span>추가 관측 요청 · 분석 trace 2–3단계</span>
                                   )}
                                 </div>
                                 {task.status === "completed" && task.response ? (
@@ -2171,179 +2755,11 @@ export default function App() {
                               </article>
                             ))}
                           </section>
-                          </div>
-                          <div className="handover-forms case-observation-form">
-                            <form
-                              className="review-form"
-                              onSubmit={(event) => {
-                                event.preventDefault();
-                                void recordCaseObservation();
-                              }}
-                            >
-                              <h4>관찰 기록 추가</h4>
-                              <label>
-                                작성자
-                                <input
-                                  value={observationAuthor}
-                                  onChange={(event) => setObservationAuthor(event.target.value)}
-                                  placeholder="Shift A 담당자"
-                                  maxLength={120}
-                                />
-                              </label>
-                              <label>
-                                관찰 원문
-                                <textarea
-                                  value={observationText}
-                                  onChange={(event) => setObservationText(event.target.value)}
-                                  placeholder="완료한 확인, 미실시 점검, 확인하지 못한 이유를 원문으로 남겨 주세요."
-                                  maxLength={4000}
-                                  rows={3}
-                                />
-                              </label>
-                              <button className="button secondary" disabled={!observationText.trim() || !observationAuthor.trim() || handoverBusy}>
-                                {handoverBusy ? <LoaderCircle className="spin" size={15} /> : <ListChecks size={15} />}
-                                관찰 기록
-                              </button>
-                            </form>
-                          </div>
-                        </section>
-                        <section className="case-hypothesis-section" aria-label="원인 가설">
-                          <div className="case-section-heading"><span className="eyebrow">HUMAN JUDGMENT</span><h3>원인 가설</h3><p>원인 후보에 대한 사람의 판단을 기록합니다. 분석 후보는 확정 원인이 아닙니다.</p></div>
-                            <section className="case-management-panel" aria-label="원인 가설 평가">
-                              <h4>가설별 판단</h4>
-                              {activeCase.hypotheses.map((hypothesis) => (
-                                <div className="case-management-entry" key={hypothesis.id}>
-                                  <button
-                                    className={selectedHypothesisId === hypothesis.id ? "selected" : ""}
-                                    aria-pressed={selectedHypothesisId === hypothesis.id}
-                                    onClick={() => selectHypothesis(hypothesis)}
-                                  >
-                                    <strong>{hypothesis.candidate_signal}</strong>
-                                    <span>{hypothesisJudgmentLabel[hypothesis.judgment]} · 판단자 {hypothesis.updated_by || "미기록"}</span>
-                                    <span>판단 이유: {hypothesis.change_reason || "아직 기록되지 않음"}</span>
-                                    <code>분석 {activeCase.analysis_runs.findIndex((run) => run.id === hypothesis.run_id) >= 0 ? `R${activeCase.analysis_runs.findIndex((run) => run.id === hypothesis.run_id) + 1}` : "기록 없음"} · {hypothesis.run_id}</code>
-                                  </button>
-                                  <div className="task-references">
-                                    {hypothesis.evidence_ids.map((id) => (
-                                      <button key={id} onClick={() => void showCaseRun(hypothesis.run_id, id)}>
-                                        근거 {id}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
-                              ))}
-                              {selectedHypothesis && (
-                                <form onSubmit={(event) => { event.preventDefault(); void assessSelectedHypothesis(); }}>
-                                  <strong>선택: {selectedHypothesis.candidate_signal}</strong>
-                                  <label>판단자
-                                    <input value={hypothesisUpdatedBy} onChange={(event) => setHypothesisUpdatedBy(event.target.value)} placeholder="이름 또는 담당자 ID" maxLength={120} />
-                                  </label>
-                                  <label>판단
-                                    <select value={hypothesisJudgment} onChange={(event) => setHypothesisJudgment(event.target.value as typeof hypothesisJudgment)}>
-                                      <option value="supported">지지</option>
-                                      <option value="not_supported">지지되지 않음</option>
-                                      <option value="insufficient">근거 부족</option>
-                                    </select>
-                                  </label>
-                                  <label>판단 이유
-                                    <textarea value={hypothesisReason} onChange={(event) => setHypothesisReason(event.target.value)} rows={2} maxLength={2000} placeholder="확인한 내용과 판단 근거" />
-                                  </label>
-                                  <button className="button secondary" disabled={!hypothesisUpdatedBy.trim() || handoverBusy || activeCase.status === "closed"}>
-                                    가설 판단 기록
-                                  </button>
-                                </form>
-                              )}
-                            </section>
-                        </section>
-                        <section className="case-analysis-section" aria-label="분석 이력">
-                          <div className="case-section-heading"><span className="eyebrow">ANALYSIS</span><h3>분석 이력</h3><p>현재 분석을 확인하고, 새 관측이 쌓이면 같은 Case에서 재분석합니다.</p></div>
-                          <section className="analysis-run-panel" aria-label="분석 실행과 이력">
-                            <div className="analysis-run-controls">
-                              <div>
-                                <span className="eyebrow">REANALYZE</span>
-                                <h4>더 늦은 시점으로 분석 이어가기</h4>
-                                <p>같은 Case에 새 분석을 추가합니다. 이전 분석의 업무와 사람의 판단은 보존됩니다.</p>
-                              </div>
-                              <form
-                                onSubmit={(event) => {
-                                  event.preventDefault();
-                                  void addCaseAnalysisRun();
-                                }}
-                              >
-                                <label>
-                                  새 cutoff (초)
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    step="0.1"
-                                    value={analysisRunCutoff}
-                                    onChange={(event) => setAnalysisRunCutoff(Number(event.target.value))}
-                                  />
-                                </label>
-                                <label>
-                                  실행자
-                                  <input
-                                    value={analysisRunCreator}
-                                    onChange={(event) => setAnalysisRunCreator(event.target.value)}
-                                    placeholder="Shift B 담당자"
-                                    maxLength={120}
-                                  />
-                                </label>
-                                <label className="analysis-run-question">
-                                  조사 질문 (선택)
-                                  <input
-                                    value={analysisRunQuestion}
-                                    onChange={(event) => setAnalysisRunQuestion(event.target.value)}
-                                    placeholder="추가 데이터까지 포함해 다시 확인"
-                                    maxLength={2000}
-                                  />
-                                </label>
-                                <button
-                                  className="button primary"
-                                  disabled={
-                                    !analysisRunCreator.trim() ||
-                                    analysisRunBusy ||
-                                    activeCase.status === "closed" ||
-                                    analysisRunCutoff <= (resume?.current_run?.diagnosis_time ?? -1)
-                                  }
-                                >
-                                  {analysisRunBusy ? <LoaderCircle className="spin" size={15} /> : <Play size={15} />}
-                                  재분석 실행
-                                </button>
-                              </form>
-                              {resume?.current_run && analysisRunCutoff <= resume.current_run.diagnosis_time && (
-                                <small>현재 cutoff {resume.current_run.diagnosis_time}s보다 늦은 시점을 입력해 주세요.</small>
-                              )}
-                            </div>
-                            <div className="analysis-run-history">
-                              <strong>분석 이력</strong>
-                              <ol>
-                                {activeCase.analysis_runs.map((item, index) => (
-                                  <li key={item.id}>
-                                    <span className="run-order">R{index + 1}</span>
-                                    <div>
-                                      <strong>{index === 0 ? "최초 분석" : "재분석"}{item.id === activeCase.current_run_id ? " · 현재" : ""}</strong>
-                                      <small>{new Date(item.created_at).toLocaleString("ko-KR")} · cutoff {item.diagnosis_time}s</small>
-                                      {run?.investigation_id === item.investigation_id && <small>주요 후보: {run.candidates.slice(0, 3).map((candidate) => candidate.signal).join(" · ") || "없음"}</small>}
-                                      <code>{item.id}</code>
-                                    </div>
-                                    <button
-                                      className="button secondary compact"
-                                      disabled={caseBusy}
-                                      onClick={() => void showCaseRun(item.id)}
-                                    >
-                                      결과 보기
-                                    </button>
-                                  </li>
-                                ))}
-                              </ol>
-                            </div>
-                          </section>
                           <aside className="agent-ledger">
                             <div className="section-heading">
                               <div>
-                                <span className="eyebrow">ACTIVITY</span>
-                                <h3>상세 활동 기록</h3>
+                                <span className="eyebrow">AGENT RUN LEDGER</span>
+                                <h3>실행 및 판단 이력</h3>
                               </div>
                               <Activity size={20} />
                             </div>
@@ -2360,111 +2776,7 @@ export default function App() {
                               ))}
                             </ol>
                           </aside>
-                        </section>
-                        <section className="case-chat-panel">
-                          <div className="section-heading">
-                            <div>
-                              <span className="eyebrow">CASE Q&amp;A</span>
-                              <h3>현재 Case에 질문하기</h3>
-                              <p>현재 상태·미해결 업무·저장된 관찰과 근거만 사용합니다. 이유가 기록되지 않으면 추정하지 않습니다.</p>
-                            </div>
-                            <MessageSquare size={21} />
-                          </div>
-                          <div className="chat-messages" aria-live="polite">
-                            {!caseChat.length && <p className="muted">예: “지금까지 무엇을 확인했고 무엇이 남았나요?”</p>}
-                            {caseChat.map((turn, index) => (
-                              <div className="chat-turn" key={`${turn.question}-${index}`}>
-                                <p className="chat-question">{turn.question}</p>
-                                <div className="chat-answer">
-                                  <span className="eyebrow">CASE ANSWER</span>
-                                  <p>{turn.response.answer}</p>
-                                  <small>{turn.response.llm_status} · 근거 {turn.response.grounded_evidence_ids.join(", ") || "없음"}</small>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                          <form className="chat-form" onSubmit={(event) => { event.preventDefault(); void askCase(); }}>
-                            <label className="checkbox">
-                              <input type="checkbox" checked={caseChatIncludeAI} onChange={(event) => setCaseChatIncludeAI(event.target.checked)} />
-                              근거 정리 AI 보조 <span>(실패 시 템플릿으로 폴백)</span>
-                            </label>
-                            <label className="sr-only" htmlFor="case-chat-input">Case 질문</label>
-                            <input
-                              id="case-chat-input"
-                              value={caseChatInput}
-                              maxLength={2000}
-                              onChange={(event) => setCaseChatInput(event.target.value)}
-                              placeholder="무엇이 확인됐고 무엇이 남았나요?"
-                            />
-                            <button className="button primary" disabled={!caseChatInput.trim() || caseChatBusy} aria-label="Case 질문 보내기">
-                              {caseChatBusy ? <LoaderCircle className="spin" size={17} /> : <Send size={17} />}
-                            </button>
-                          </form>
-                        </section>
-                        <section className="case-handover-panel" aria-label="인계">
-                          <div className="case-section-heading"><span className="eyebrow">HANDOVER</span><h3>다음 교대에 인계</h3><p>미해결 업무와 판단 상태를 점검한 뒤 인계 내용을 발행합니다.</p></div>
-                          <div className="handover-check-summary">
-                            <span>현재 상태 <strong>{caseStatusLabel[activeCase.status]}</strong></span>
-                            <span>미해결 업무 <strong>{activeCase.open_items.filter((item) => item.status !== "resolved").length}건</strong></span>
-                            <span>미평가 원인 가설 <strong>{activeCase.hypotheses.filter((item) => item.judgment === "unreviewed").length}건</strong></span>
-                          </div>
-                          <div className="handover-forms">
-                            <div className="review-form">
-                              <h4>인계 점검</h4>
-                              <label>
-                                인계자
-                                <input value={handoverSender} onChange={(event) => setHandoverSender(event.target.value)} placeholder="Shift A" maxLength={120} />
-                              </label>
-                              <label>
-                                인수자
-                                <input value={handoverReceiver} onChange={(event) => setHandoverReceiver(event.target.value)} placeholder="Shift B" maxLength={120} />
-                              </label>
-                              <div className="button-row">
-                                <button className="button secondary" disabled={!handoverSender.trim() || !handoverReceiver.trim() || handoverBusy} onClick={() => void checkCaseHandover()}>
-                                  사전 점검
-                                </button>
-                                <button className="button primary" disabled={!handoverSender.trim() || !handoverReceiver.trim() || handoverBusy} onClick={() => void publishCaseHandover()}>
-                                  Packet 발행
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                          {handoverFindings.length > 0 && (
-                            <div className="disclosure">
-                              <strong>인계 점검 결과</strong>
-                              <ul>
-                                {handoverFindings.map((finding) => (
-                                  <li key={`${finding.code}-${finding.entity_id}`}>
-                                    <span className={`badge ${finding.severity === "blocking" ? "warning" : "neutral"}`}>
-                                      {finding.severity === "blocking" ? "보완 필요" : "전달"}
-                                    </span>{" "}
-                                    {finding.message}
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                          )}
-                          {activeCase.handovers.length > 0 && (() => {
-                            const handover = activeCase.handovers.at(-1)!;
-                            const snapshot = activeCase.handover_snapshots.find((item) => item.id === handover.snapshot_id);
-                            return (
-                              <div className="case-next-action">
-                                <ArrowDownToLine size={19} />
-                                <div>
-                                  <strong>최근 인계 · {handoverStatusLabel[handover.status]}</strong>
-                                  <p>{handover.sender} → {handover.receiver} · 발행 {new Date(handover.published_at).toLocaleString("ko-KR")}</p>
-                                  <small className="mono">인계 기록 {snapshot?.id || "없음"} · Case 버전 {handover.source_case_version}</small>
-                                </div>
-                                {handover.status === "published" && (
-                                  <div className="button-row">
-                                    <button className="button secondary compact" disabled={handoverBusy} onClick={() => void requestCaseHandoverChanges()}>설명 요청</button>
-                                    <button className="button primary compact" disabled={handoverBusy} onClick={() => void acceptCaseHandover()}><Check size={15} /> 인수 확인</button>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })()}
-                        </section>
+                        </div>
                         {activeCase.status === "ready_for_review" && (
                           <section className="case-review-gate">
                             <div>
@@ -2524,7 +2836,8 @@ export default function App() {
                       </>
                     )}
                   </section>
-                </div>
+                  </div>
+                </>
               )}
             </section>
           )}
@@ -2600,7 +2913,7 @@ export default function App() {
           {page === "guide" && (
             <section className="panel standalone guide">
               <div className="guide-brand">
-                <img src="/brand-mark.png" width="48" height="48" alt="" />
+                <img src="/brand-mark.svg" width="48" height="48" alt="" />
                 <div><strong>{brand.name}</strong><span>{brand.koreanName} · {brand.descriptor}</span></div>
               </div>
               <p className="brand-tagline">{brand.tagline}</p>

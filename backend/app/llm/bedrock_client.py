@@ -1,4 +1,4 @@
-"""AWS Bedrock (Anthropic Claude) client configuration for the LLM narrative layer.
+"""LLM provider configuration for the Continuum narrative layer.
 
 ★ 이식 근거 (ADR-0002) ★
 이 모듈은 루트의 `agent.py`가 쓰던 `AnthropicBedrock` 호출부를 그대로 재사용한다.
@@ -13,6 +13,9 @@
 `backend.app.main`의 import 체인이 죽으면 안 된다. 이 모듈은 클라이언트를
 "필요할 때만" 지연 생성하고, 실패하면 `BedrockUnavailable`을 던져서 호출자
 (`explainer.py`)가 결정론적 모드로 안전하게 폴백할 수 있게 한다.
+대회 기간에는 동일한 Bedrock 계열 모델을 제공하는 OpenAI-compatible Gateway를
+사용할 수 있도록 `LLM_PROVIDER=competition_gateway`를 지원한다. 직접 Bedrock
+경로는 기본값으로 보존하여 기존 배포와 테스트의 동작을 깨지 않는다.
 """
 
 from __future__ import annotations
@@ -25,6 +28,14 @@ try:
     _ANTHROPIC_AVAILABLE = True
 except ImportError:
     _ANTHROPIC_AVAILABLE = False
+
+try:
+    from openai import OpenAI
+
+    _OPENAI_AVAILABLE = True
+except ImportError:
+    OpenAI = object  # type: ignore[assignment,misc]
+    _OPENAI_AVAILABLE = False
 
 
 class BedrockUnavailable(RuntimeError):
@@ -65,7 +76,75 @@ def bedrock_model_id() -> str:
     return os.getenv("BEDROCK_MODEL_ID", "us.anthropic.claude-sonnet-4-6")
 
 
-def build_client() -> AnthropicBedrock:
+def llm_provider() -> str:
+    """Return the configured provider while keeping direct Bedrock as default."""
+    return os.getenv("LLM_PROVIDER", "direct_bedrock").strip().lower()
+
+
+def llm_api_key() -> str:
+    """Return the gateway key without ever logging or exposing its value.
+
+    ``API_KEY`` is the variable name used by the competition guide. The
+    app-specific ``LLM_API_KEY`` remains the preferred name so it cannot be
+    confused with unrelated API credentials in a shared environment.
+    """
+    return os.getenv("LLM_API_KEY") or os.getenv("API_KEY") or os.getenv("OPENAI_API_KEY", "")
+
+
+def llm_base_url() -> str:
+    return os.getenv("LLM_BASE_URL", "https://52.79.201.46/v1")
+
+
+def llm_model_id(task: str = "narrative") -> str:
+    """Return the model alias for the active provider and task.
+
+    Narrative output is user-facing and defaults to the stronger balanced
+    model. Future high-volume structuring calls can opt into Haiku without
+    changing the provider or the current narrative setting.
+    """
+    if llm_provider() == "competition_gateway":
+        if task == "structuring":
+            return os.getenv("LLM_STRUCTURING_MODEL", "bedrock-haiku")
+        return os.getenv("LLM_MODEL", "bedrock-gpt-5.6-terra")
+    return bedrock_model_id()
+
+
+def llm_is_configured() -> bool:
+    """Return whether the active provider has the minimum required settings."""
+    if llm_provider() == "competition_gateway":
+        return bool(llm_api_key())
+    return bool(os.getenv("BEDROCK_MODEL_ID"))
+
+
+def build_client() -> AnthropicBedrock | OpenAI:
+    """Construct the active provider client lazily.
+
+    The gateway uses the OpenAI-compatible SDK but is still backed by the
+    competition's Bedrock model aliases. Missing optional SDKs/configuration
+    become ``BedrockUnavailable`` so callers can preserve deterministic output.
+    """
+    provider = llm_provider()
+    if provider == "competition_gateway":
+        if not _OPENAI_AVAILABLE:
+            raise BedrockUnavailable("The 'openai' package is not installed.")
+        api_key = llm_api_key()
+        if not api_key:
+            raise BedrockUnavailable("LLM_API_KEY is not configured for the competition gateway.")
+        try:
+            return OpenAI(
+                base_url=llm_base_url(),
+                api_key=api_key,
+                timeout=llm_timeout_s(),
+                max_retries=0,
+            )
+        except Exception as exc:
+            raise BedrockUnavailable(
+                f"Failed to construct the competition gateway client: {exc}"
+            ) from exc
+
+    if provider != "direct_bedrock":
+        raise BedrockUnavailable(f"Unsupported LLM_PROVIDER: {provider}")
+
     if not _ANTHROPIC_AVAILABLE:
         raise BedrockUnavailable("The 'anthropic' package is not installed.")
     try:
@@ -80,6 +159,16 @@ def apply_guardrail(text: str, source: str) -> None:
     The guardrail is deliberately an independent API call so the same policy
     can protect both direct Bedrock calls and future AgentCore/chat paths.
     """
+    # The competition gateway does not expose our account's Bedrock
+    # Guardrail API. Keep the safe deterministic/prompt constraints active,
+    # but do not accidentally issue a separate AWS call for gateway traffic.
+    if llm_provider() == "competition_gateway":
+        if os.getenv("LLM_REQUIRE_GUARDRAIL", "false").lower() == "true":
+            raise BedrockUnavailable(
+                "LLM_REQUIRE_GUARDRAIL=true is unsupported for the competition gateway."
+            )
+        return
+
     guardrail_id = os.getenv("BEDROCK_GUARDRAIL_ID")
     guardrail_version = os.getenv("BEDROCK_GUARDRAIL_VERSION", "DRAFT")
     if not guardrail_id:
@@ -88,7 +177,6 @@ def apply_guardrail(text: str, source: str) -> None:
         return
     try:
         import boto3
-
         from botocore.config import Config
 
         client = boto3.client(

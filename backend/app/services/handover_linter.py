@@ -102,12 +102,15 @@ def lint_case(
             )
         )
 
-    if not any(observation.approved for observation in case.observations):
+    if not any(
+        observation.approved and observation.is_current_state
+        for observation in case.observations
+    ):
         findings.append(
             HandoverFinding(
                 code="missing-current-state",
                 severity=HandoverFindingSeverity.BLOCKING,
-                message="현재 설비 상태를 뒷받침하는 승인된 관찰 기록이 없습니다.",
+                message="현재 설비 상태임을 명시한 승인된 관찰 기록이 없습니다.",
             )
         )
 

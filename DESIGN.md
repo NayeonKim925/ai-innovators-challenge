@@ -5,7 +5,7 @@
 - Last refreshed: 2026-09-17
 - Primary product surfaces: React 조사 워크스페이스, 근거 상세, 검토·보고서, 보조 채팅.
 - Evidence reviewed: `docs/PRODUCT.md`, `docs/ARCHITECTURE.md`, `backend/app/domain.py`, 기존 Streamlit과 현재 `frontend/src/App.tsx`, `frontend/src/styles.css`. 초기 구축 때 없었던 React UI·브랜드 토큰을 현재 구현 기준으로 관리한다.
-- References: `.lazyweb/quick-references/investigation-2026-09-17/report.md`. Lazyweb MCP tools/list 연결 성공, health/search 단계 HTTP 429. 미확보 이미지를 참고했다고 주장하지 않음. 공식 Linear, Metabase, Grafana 자료를 보완 근거로 사용.
+- References: 공식 Linear, Metabase, Grafana 자료와 팀 내부 UI 검토. 외부 레퍼런스 캡처와 Lazyweb 작업 산출물은 로컬 전용이며 저장소에는 포함하지 않는다.
 - Branding follow-up: 같은 날 Lazyweb health/search 재조회 성공. Rows·Dovetail·Tango의 브랜딩/워크스페이스 화면 메타데이터 확인. 해당 화면 이미지는 미다운로드·미검토이며 기존 시각 레퍼런스를 유지한다. 브랜드 결정은 `docs/BRAND.md`.
 
 ## Brand
@@ -39,7 +39,7 @@
 - Tradeoffs: 기획서의 협업 수정 기능은 API가 지원하는 승인/거절 범위까지만 UI 제공.
 
 ## Visual language
-- 2026-09-17 UI revision의 당시 리서치 경로: `.lazyweb/design-improve/cluephase-console-2026-09-17/report.md`. 이 경로는 과거 작업 기록이라 이름을 바꾸지 않는다.
+- 2026-09-17 UI revision의 선택·제외 기준은 이 문서와 `docs/UI_IMPLEMENTATION.md`에 반영되어 있다. 원본 캡처는 로컬 작업 산출물로 관리한다.
 - Color: canvas #F5F7F8, surface #FFFFFF, sidebar #142D35, ink #18333B, muted #60747C, border #DEE6E9, accent #167D7B, accent-soft #E9F4F1, warning #946019 / #FFF5E3.
 - Typography: 로컬 Pretendard Variable + 시스템 monospace. 굵은 제목의 반복 대신 제목24px/450, 본문400~500, 기술 ID·숫자는 고정폭으로 분리. 설명·표는 11px 이상을 기본으로 한다. 워드마크도 가볍게 조정하며 기존 720 규칙보다 이번 수정 기준이 우선한다.
 - Spacing/layout rhythm: 4px 기반, 주요 간격 8/12/16/24/32; sidebar208px, 목록280px, 본문 fluid.

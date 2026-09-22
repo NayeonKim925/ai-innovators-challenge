@@ -32,8 +32,13 @@ test("Shift Workspace summarizes multiple Cases, filters work, and a Case opens 
   const c = caseRecord("case_C", "closed", old);
   const allCases = [a, b, c];
   let resumeCalls = 0;
+  let serverWorkspaceCalls = 0;
   const investigationRequests: string[] = [];
 
+  await page.route("**/api/shift-workspace?*", (route) => {
+    serverWorkspaceCalls++;
+    return route.fulfill({ status: 404, json: { detail: "Not Found" } });
+  });
   await page.route("**/api/health", (route) => route.fulfill({ json: { status: "ok", llm_provider: "not_configured" } }));
   await page.route("**/api/datasets", (route) => route.fulfill({ json: { datasets: [{ dataset: "causrca", status: "ready", incident_count: 3 }] } }));
   await page.route("**/api/incidents?*", (route) => route.fulfill({ json: { incidents: allCases.map((entry) => ({ id: entry.incident_id, source_dataset: "causrca", title: `Incident ${entry.id}`, time_range_s: { start: 0, end: 200 }, capabilities: [] })) } }));
@@ -115,7 +120,8 @@ test("Shift Workspace summarizes multiple Cases, filters work, and a Case opens 
   await page.getByRole("combobox", { name: "Case status" }).selectOption("all");
   await page.getByRole("article", { name: "Case case_A" }).getByRole("button", { name: "Case 이어서 조사" }).click();
   await expect(page.getByRole("region", { name: "사건 상세" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "사건 상세" })).toContainText("인계 당시부터 지금까지");
+  await expect(page.getByRole("region", { name: "사건 상세" })).toContainText("Packet 발행 당시");
   await expect(page.getByRole("region", { name: "사건 상세" })).toContainText("case_A2");
   expect(resumeCalls).toBeGreaterThanOrEqual(3);
+  expect(serverWorkspaceCalls).toBe(0);
 });

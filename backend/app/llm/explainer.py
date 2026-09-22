@@ -28,8 +28,9 @@ from .bedrock_client import (
     BedrockUnavailable,
     GuardrailBlocked,
     apply_guardrail,
-    bedrock_model_id,
     build_client,
+    llm_model_id,
+    llm_provider,
 )
 from .tools import get_fault_reference, summarize_candidates
 
@@ -84,6 +85,46 @@ def _build_prompt(result: InvestigationResult) -> str:
     return "\n".join(lines)
 
 
+def _create_response(client: object, prompt: str) -> object:
+    """Call the active provider without leaking provider details elsewhere."""
+    if llm_provider() == "competition_gateway":
+        return client.chat.completions.create(  # type: ignore[attr-defined]
+            model=llm_model_id(),
+            max_tokens=800,
+            temperature=0,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+        )
+    return client.messages.create(  # type: ignore[attr-defined]
+        model=llm_model_id(),
+        max_tokens=800,
+        system=SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+
+def _response_text(response: object) -> str:
+    if llm_provider() == "competition_gateway":
+        message = response.choices[0].message  # type: ignore[attr-defined]
+        return message.content or ""
+    return "".join(block.text for block in response.content if block.type == "text")  # type: ignore[attr-defined]
+
+
+def _response_token_usage(response: object) -> int | None:
+    usage = getattr(response, "usage", None)
+    if usage is None:
+        return None
+    if llm_provider() == "competition_gateway":
+        prompt_tokens = getattr(usage, "prompt_tokens", 0)
+        completion_tokens = getattr(usage, "completion_tokens", 0)
+    else:
+        prompt_tokens = getattr(usage, "input_tokens", 0)
+        completion_tokens = getattr(usage, "output_tokens", 0)
+    return prompt_tokens + completion_tokens
+
+
 def generate_narrative(result: InvestigationResult) -> tuple[str | None, TraceEvent]:
     """Bedrock Claude로 `result`를 요약한다. 실패하면 (None, trace_event)를
     반환하고, 성공하면 (narrative_text, trace_event)를 반환한다. 어느 쪽이든
@@ -93,13 +134,8 @@ def generate_narrative(result: InvestigationResult) -> tuple[str | None, TraceEv
         prompt = _build_prompt(result)
         apply_guardrail(prompt, "INPUT")
         client = build_client()
-        response = client.messages.create(
-            model=bedrock_model_id(),
-            max_tokens=800,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        narrative = "".join(block.text for block in response.content if block.type == "text")
+        response = _create_response(client, prompt)
+        narrative = _response_text(response)
         apply_guardrail(narrative, "OUTPUT")
         evidence_ids = {
             evidence_id for candidate in result.candidates for evidence_id in candidate.evidence_ids
@@ -113,14 +149,14 @@ def generate_narrative(result: InvestigationResult) -> tuple[str | None, TraceEv
                 token_usage=None,
             )
         latency_ms = (time.monotonic() - started) * 1000
-        token_usage = None
-        usage = getattr(response, "usage", None)
-        if usage is not None:
-            token_usage = getattr(usage, "input_tokens", 0) + getattr(usage, "output_tokens", 0)
+        token_usage = _response_token_usage(response)
         return narrative, TraceEvent(
             step=5,
             tool="bedrock_llm_narrative",
-            detail=f"Generated a narrative summary via {bedrock_model_id()}. No candidates or scores were altered.",
+            detail=(
+                f"Generated a narrative summary via {llm_provider()} / {llm_model_id()}. "
+                "No candidates or scores were altered."
+            ),
             latency_ms=round(latency_ms, 1),
             token_usage=token_usage,
         )

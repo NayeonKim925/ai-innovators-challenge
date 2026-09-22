@@ -1,7 +1,6 @@
 from pathlib import Path
 
 import pytest
-
 from app.data.runtime_repository import JsonRuntimeRepository
 from app.domain import DatasetName
 

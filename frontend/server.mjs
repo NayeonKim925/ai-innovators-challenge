@@ -50,7 +50,18 @@ const API_ROUTE_ALLOWLIST = [
   { method: "GET", pattern: /^\/api\/investigations\/[^/]+\/report$/ },
   { method: "POST", pattern: /^\/api\/investigations\/[^/]+\/chat$/ },
   { method: "GET", pattern: /^\/api\/cases$/ },
+  { method: "GET", pattern: /^\/api\/shift-workspace$/ },
   { method: "GET", pattern: /^\/api\/cases\/[^/]+$/ },
+  { method: "GET", pattern: /^\/api\/cases\/[^/]+\/structuring-proposals$/ },
+  { method: "POST", pattern: /^\/api\/cases\/[^/]+\/structuring-proposals$/ },
+  {
+    method: "POST",
+    pattern: /^\/api\/cases\/[^/]+\/structuring-proposals\/[^/]+\/accept$/,
+  },
+  {
+    method: "POST",
+    pattern: /^\/api\/cases\/[^/]+\/structuring-proposals\/[^/]+\/dismiss$/,
+  },
   { method: "POST", pattern: /^\/api\/cases\/[^/]+\/observations$/ },
   { method: "POST", pattern: /^\/api\/cases\/[^/]+\/analysis-runs$/ },
   { method: "POST", pattern: /^\/api\/cases\/[^/]+\/open-items$/ },

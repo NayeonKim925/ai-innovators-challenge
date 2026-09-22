@@ -13,6 +13,7 @@ import uuid
 from datetime import UTC, datetime
 
 from ..domain import (
+    ActorRole,
     AnalysisRun,
     CaseEvent,
     CaseReviewDecision,
@@ -33,6 +34,10 @@ from ..domain import (
     OpenItem,
     OpenItemStatus,
     OperatorObservation,
+    ShiftWorkspaceFilter,
+    ShiftWorkspaceItem,
+    ShiftWorkspaceResponse,
+    ShiftWorkspaceSummary,
     StoredCaseReview,
 )
 from ..repositories.cases import CaseConflictError, CaseNotFoundError, CaseRepository
@@ -63,6 +68,8 @@ def _event(
     event_type: str,
     detail: str,
     actor: str,
+    actor_id: str | None = None,
+    actor_role: ActorRole | None = None,
     evidence_ids: list[str] | None = None,
     trace_steps: list[int] | None = None,
 ) -> CaseEvent:
@@ -71,6 +78,8 @@ def _event(
         event_type=event_type,  # type: ignore[arg-type]
         detail=detail,
         actor=actor,  # type: ignore[arg-type]
+        actor_id=actor_id,
+        actor_role=actor_role,
         evidence_ids=evidence_ids or [],
         trace_steps=trace_steps or [],
         created_at=_now(),
@@ -239,6 +248,152 @@ def get_case(case_id: str, cases: CaseRepository) -> InvestigationCase:
     if case is None:
         raise CaseNotFoundError(case_id)
     return case
+
+
+def build_shift_workspace(
+    *,
+    assignee: str | None,
+    status: ShiftWorkspaceFilter,
+    cases: CaseRepository,
+) -> ShiftWorkspaceResponse:
+    """Build the incoming-shift queue without changing any Case state.
+
+    The projection deliberately uses persisted handover findings and Case
+    state only. It does not infer a root cause or silently turn an accepted
+    handover into a new task.
+    """
+
+    normalized_assignee = assignee.strip() if assignee and assignee.strip() else None
+    projections: list[ShiftWorkspaceItem] = []
+    for case in list_cases(cases):
+        handover = next(
+            (item for item in reversed(case.handovers) if item.id == case.current_handover_id),
+            None,
+        )
+        snapshot = next(
+            (
+                item
+                for item in case.handover_snapshots
+                if handover and item.id == handover.snapshot_id
+            ),
+            None,
+        )
+        assigned_items = [
+            item
+            for item in case.open_items
+            if item.status is not OpenItemStatus.RESOLVED
+            and (normalized_assignee is None or item.assignee == normalized_assignee)
+        ]
+        unknown_state = any(
+            item.status
+            in {
+                OpenItemStatus.NOT_STARTED,
+                OpenItemStatus.UNAVAILABLE,
+                OpenItemStatus.NOT_RECORDED,
+            }
+            for item in assigned_items
+        )
+        pending_handover = bool(
+            handover
+            and handover.status is HandoverStatus.PUBLISHED
+            and (normalized_assignee is None or handover.receiver == normalized_assignee)
+        )
+        stale_snapshot = bool(
+            handover
+            and snapshot
+            and handover.status
+            in {
+                HandoverStatus.PUBLISHED,
+                HandoverStatus.ACCEPTED,
+                HandoverStatus.CHANGES_REQUESTED,
+            }
+            and case.version != snapshot.source_case_version
+        )
+        blocking_findings = [
+            finding
+            for finding in (snapshot.findings if snapshot else [])
+            if finding.severity.value == "blocking"
+        ]
+        if normalized_assignee is None:
+            assigned_items = [
+                item for item in case.open_items if item.status is not OpenItemStatus.RESOLVED
+            ]
+            unknown_state = any(
+                item.status
+                in {
+                    OpenItemStatus.NOT_STARTED,
+                    OpenItemStatus.UNAVAILABLE,
+                    OpenItemStatus.NOT_RECORDED,
+                }
+                for item in assigned_items
+            )
+        related_to_assignee = bool(
+            normalized_assignee is None
+            or assigned_items
+            or pending_handover
+            or (handover is not None and handover.receiver == normalized_assignee)
+        )
+        if not related_to_assignee:
+            continue
+        reasons: list[str] = []
+        if pending_handover:
+            reasons.append("pending_handover")
+        if assigned_items:
+            reasons.append("assigned_open_item")
+        if unknown_state:
+            reasons.append("unknown_state")
+        if stale_snapshot:
+            reasons.append("stale_snapshot")
+        if blocking_findings:
+            reasons.append("blocking_finding")
+        if status == "handover" and not pending_handover:
+            continue
+        if status == "open_items" and not assigned_items:
+            continue
+        if status == "stale" and not stale_snapshot:
+            continue
+        if status == "action_required" and not reasons:
+            continue
+        priority = (
+            (4 if stale_snapshot else 0)
+            + (3 if blocking_findings else 0)
+            + (2 if pending_handover else 0)
+            + (1 if assigned_items else 0)
+        )
+        projections.append(
+            ShiftWorkspaceItem(
+                case_id=case.id,
+                incident_id=case.incident_id,
+                case_status=case.status,
+                case_version=case.version,
+                priority=priority,
+                reasons=reasons,
+                next_action=case.next_action,
+                handover_status=handover.status if handover else None,
+                handover_receiver=handover.receiver if handover else None,
+                pending_handover=pending_handover,
+                stale_snapshot=stale_snapshot,
+                blocking_findings=blocking_findings,
+                open_items=assigned_items,
+                hypotheses=case.hypotheses,
+                updated_at=case.updated_at,
+            )
+        )
+
+    projections.sort(key=lambda item: item.updated_at, reverse=True)
+    projections.sort(key=lambda item: item.priority, reverse=True)
+    return ShiftWorkspaceResponse(
+        assignee=normalized_assignee,
+        status=status,
+        summary=ShiftWorkspaceSummary(
+            cases=len(projections),
+            pending_handovers=sum(item.pending_handover for item in projections),
+            assigned_open_items=sum(len(item.open_items) for item in projections),
+            stale_snapshots=sum(item.stale_snapshot for item in projections),
+            blocking_findings=sum(len(item.blocking_findings) for item in projections),
+        ),
+        items=projections,
+    )
 
 
 def _complete_task(
@@ -436,6 +591,7 @@ def append_operator_observation(
     scope: str,
     source_location: str,
     provenance: str,
+    is_current_state: bool,
     expected_version: int,
     cases: CaseRepository,
 ) -> InvestigationCase:
@@ -453,6 +609,7 @@ def append_operator_observation(
         source_location=source_location,
         provenance=provenance,
         approved=True,
+        is_current_state=is_current_state,
     )
     updated = case.model_copy(
         update={
@@ -767,6 +924,8 @@ def check_handover(
     expected_version: int,
     sender: str,
     receiver: str,
+    actor_id: str,
+    actor_role: ActorRole,
     investigations: InvestigationRepository,
     cases: CaseRepository,
 ) -> tuple[list[HandoverFinding], InvestigationCase]:
@@ -789,6 +948,8 @@ def check_handover(
             f"finding_hash={finding_hash}."
         ),
         actor="operator",
+        actor_id=actor_id,
+        actor_role=actor_role,
     )
     return findings, _persist_updated_case(current=case, updated=updated, cases=cases)
 
@@ -799,6 +960,8 @@ def publish_handover(
     sender: str,
     receiver: str,
     exception_reason: str,
+    actor_id: str,
+    actor_role: ActorRole,
     expected_version: int,
     investigations: InvestigationRepository,
     cases: CaseRepository,
@@ -807,8 +970,16 @@ def publish_handover(
     if case.version != expected_version:
         raise CaseConflictError(case_id)
     findings = lint_case(case, investigations)
-    if has_blocking_findings(findings) and not exception_reason.strip():
-        raise HandoverLintError(findings)
+    if exception_reason.strip() and (
+        not actor_id
+        or actor_role not in {"shift_lead", "supervisor", "maintenance_lead", "admin"}
+    ):
+        raise CaseTransitionError(
+            "A handover exception requires an authenticated lead or supervisor actor."
+        )
+    if has_blocking_findings(findings):
+        if not exception_reason.strip():
+            raise HandoverLintError(findings)
     snapshot = _build_handover_snapshot(case, findings)
     published_at = _now()
     handover = Handover(
@@ -821,6 +992,8 @@ def publish_handover(
         exception_reason=exception_reason,
         created_at=published_at,
         published_at=published_at,
+        exception_approved_by=actor_id if exception_reason.strip() else None,
+        exception_approved_role=actor_role if exception_reason.strip() else None,
     )
     updated = case.model_copy(
         update={
@@ -841,13 +1014,20 @@ def publish_handover(
             f"Snapshot {snapshot.id} is fixed to Case version {handover.source_case_version}."
         ),
         actor="operator",
+        actor_id=actor_id,
+        actor_role=actor_role,
     )
     if exception_reason.strip():
         updated = _append_event(
             updated,
             event_type="handover_linted",
-            detail=f"Published with an explicit exception: {exception_reason}",
+            detail=(
+                f"Published with an explicit exception by {actor_id} ({actor_role}): "
+                f"{exception_reason}"
+            ),
             actor="operator",
+            actor_id=actor_id,
+            actor_role=actor_role,
         )
     return _persist_updated_case(current=case, updated=updated, cases=cases)
 
@@ -858,6 +1038,8 @@ def accept_handover(
     handover_id: str,
     snapshot_id: str,
     accepted_by: str,
+    actor_id: str,
+    actor_role: ActorRole,
     expected_version: int,
     cases: CaseRepository,
 ) -> InvestigationCase:
@@ -887,6 +1069,8 @@ def accept_handover(
             event_type="handover_superseded",
             detail="The published Snapshot is stale because the Case changed after publication.",
             actor="system",
+            actor_id=actor_id,
+            actor_role=actor_role,
         )
         _persist_updated_case(current=case, updated=updated, cases=cases)
         raise CaseTransitionError("Published Snapshot is stale and must be reviewed again")
@@ -913,6 +1097,8 @@ def accept_handover(
             "Case investigation remains independent from handover acceptance."
         ),
         actor="operator",
+        actor_id=actor_id,
+        actor_role=actor_role,
     )
     return _persist_updated_case(current=case, updated=updated, cases=cases)
 
@@ -923,6 +1109,8 @@ def request_handover_changes(
     handover_id: str,
     requested_by: str,
     reason: str,
+    actor_id: str,
+    actor_role: ActorRole,
     expected_version: int,
     cases: CaseRepository,
 ) -> InvestigationCase:
@@ -945,6 +1133,9 @@ def request_handover_changes(
     updated = case.model_copy(
         update={
             "handovers": [changed if item.id == handover_id else item for item in case.handovers],
+            "next_action": (
+                "The sender must clarify the handover gaps before publishing a new Packet."
+            ),
             "updated_at": changed_at,
         }
     )
@@ -953,6 +1144,8 @@ def request_handover_changes(
         event_type="handover_changes_requested",
         detail=f"{requested_by} requested changes to handover {handover_id}: {reason}",
         actor="operator",
+        actor_id=actor_id,
+        actor_role=actor_role,
     )
     return _persist_updated_case(current=case, updated=updated, cases=cases)
 
@@ -1025,6 +1218,7 @@ def build_resume(case_id: str, cases: CaseRepository) -> dict[str, object]:
                 "author": item.author,
                 "recorded_at": item.recorded_at,
                 "provenance": item.provenance.value,
+                "is_current_state": item.is_current_state,
             }
             for item in case.observations
         ],

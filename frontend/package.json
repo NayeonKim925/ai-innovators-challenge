@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "start": "node server.mjs",
     "test": "node --test server.test.mjs presentation.test.mjs brand.test.mjs resume.test.mjs shiftSummary.test.mjs",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:real": "playwright test e2e/real-backend-handover.spec.ts"
   },
   "dependencies": {
     "lucide-react": "^0.577.0",

@@ -173,8 +173,7 @@ evidence_check를 통과한 InvestigationResult
 - 작업 브랜치: `service-hardening`
 - 마지막 커밋: `6d0c96e Make investigation UI feel like a working ledger`
 - Case Orchestrator 변경은 이 핸드오프 문서와 함께 `service-hardening`에 반영한다. 원격 병합 상태는 GitHub PR·commit log로 확인한다.
-- `.omx/state/cluephase-console/`은 기존 사용자 작업 상태이므로 수정·삭제·커밋하지 않는다.
-- `.omx/state/case-orchestration-ui/`은 로컬 시각 QA 기록이며 제품 코드와 분리한다.
+- 에이전트 런타임과 시각 QA 상태는 로컬 작업 산출물이며 수정·삭제·커밋하지 않는다. 제품 코드·문서와 분리한다.
 - 커밋 전에는 관련 코드와 문서만 stage하고, Lore 형식의 commit message를 사용한다.
 
 ## 8. 다음 작업 우선순위

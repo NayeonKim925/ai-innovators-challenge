@@ -51,6 +51,18 @@ E2E 기본 주소는 `http://127.0.0.1:4187`입니다. `PORT=4187`로 웹 서버
 로컬 API를 사용하며, 검토 기록을 쓰므로 공유 운영 데이터가 아닌 로컬 검증 환경에서 실행합니다.
 브라우저가 없다면 `npx playwright install chromium`으로 설치합니다.
 
+`npm run test:e2e`는 로컬 준비 데이터와 실제 FastAPI 백엔드를 자동으로 띄운 뒤 React
+production proxy를 통해 브라우저 시나리오를 실행합니다. 백엔드는 E2E 전용 in-memory
+Case 저장소와 `data/runtime`만 사용하며, `API_AUTH_TOKEN`과 actor context header를
+테스트 프로세스가 주입합니다. 따라서 이 테스트는 mock route가 아니라 브라우저 →
+Node proxy → FastAPI → Case repository 전체 경계를 검증합니다. 인수인계 경로만 빠르게
+확인하려면 `npm run test:e2e:real`을 사용합니다.
+
+테스트는 기본적으로 기존 4187/4188 listener를 재사용하지 않아 잘못된 backend를 물고
+실행되는 상황을 방지합니다. 이미 별도 서버를 띄운 환경에서 재사용하려면
+`REUSE_E2E_SERVER=true`를 지정하고, 포트 충돌이 있으면 `UI_TEST_PORT`와
+`BACKEND_TEST_PORT`를 함께 바꿉니다.
+
 ## 컨테이너 빌드
 
 저장소 루트에서 실행합니다.

@@ -6,12 +6,14 @@ import os
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .data.runtime_repository import JsonRuntimeRepository
 from .domain import (
+    ActorContext,
+    ActorRole,
     AnalysisRunRequest,
     CaseChatRequest,
     CaseCreateRequest,
@@ -31,9 +33,14 @@ from .domain import (
     OpenItemUpdateRequest,
     OperatorObservationRequest,
     ReviewDecision,
+    ShiftWorkspaceFilter,
     StoredReview,
+    StructuringProposalAcceptRequest,
+    StructuringProposalDismissRequest,
+    StructuringProposalRequest,
+    StructuringProposalResponse,
 )
-from .llm.bedrock_client import bedrock_model_id, llm_timeout_s
+from .llm.bedrock_client import llm_is_configured, llm_model_id, llm_provider, llm_timeout_s
 from .repositories.cases import (
     CaseConflictError,
     CaseNotFoundError,
@@ -45,6 +52,10 @@ from .repositories.investigation_store import (
     build_investigation_repository,
 )
 from .repositories.investigations import InvestigationNotFoundError
+from .repositories.structuring_proposals import (
+    StructuringProposalRepository,
+    build_structuring_proposal_repository,
+)
 from .services.case_chat import answer_case_question
 from .services.cases import (
     CaseTransitionError,
@@ -54,6 +65,7 @@ from .services.cases import (
     append_operator_observation,
     assess_hypothesis,
     build_resume,
+    build_shift_workspace,
     check_handover,
     create_open_item,
     get_case,
@@ -64,6 +76,10 @@ from .services.cases import (
     respond_to_task,
     review_case,
     update_open_item,
+)
+from .services.context_structuring import (
+    accept_structuring_proposal,
+    build_structuring_proposals,
 )
 from .services.investigations import answer_question, run_investigation
 from .services.narrative_jobs import (
@@ -77,6 +93,7 @@ def create_app(
     repository: JsonRuntimeRepository | None = None,
     investigations: InvestigationRepository | None = None,
     cases: CaseRepository | None = None,
+    structuring_proposals: StructuringProposalRepository | None = None,
 ) -> FastAPI:
     app = FastAPI(
         title="Manufacturing Investigation API",
@@ -88,6 +105,29 @@ def create_app(
     app.state.repository = repository or JsonRuntimeRepository()
     app.state.investigations = investigations or build_investigation_repository()
     app.state.cases = cases or build_case_repository()
+    # Proposals are intentionally non-authoritative. Only an explicit accept
+    # transition can change the Case aggregate.
+    app.state.structuring_proposals = (
+        structuring_proposals or build_structuring_proposal_repository()
+    )
+
+    def resolve_actor_context(
+        actor_id: str | None,
+        actor_role: ActorRole | None,
+        fallback_id: str,
+    ) -> ActorContext:
+        """Resolve trusted request context while preserving local-MVP compatibility.
+
+        Production deployments require both headers in middleware. Local tests and
+        the research UI can still exercise the domain contract without auth setup;
+        those calls are explicitly marked as a local fallback in the event payload.
+        """
+        has_trusted_context = bool(actor_id and actor_role)
+        return ActorContext(
+            actor_id=actor_id or fallback_id,
+            role=actor_role or "operator",
+            source="trusted_header" if has_trusted_context else "local_fallback",
+        )
     origins = os.getenv("CORS_ORIGINS", "http://localhost:5173").split(",")
     app.add_middleware(
         CORSMiddleware,
@@ -134,15 +174,15 @@ def create_app(
         )
         case_storage = "dynamodb" if os.getenv("CASE_DDB_TABLE") else "in_memory"
         guardrail_configured = bool(os.getenv("BEDROCK_GUARDRAIL_ID"))
-        llm_configured = bool(os.getenv("BEDROCK_MODEL_ID"))
+        llm_configured = llm_is_configured()
         return {
             "status": "ok",
             "mode": "deterministic",
             "deployment": os.getenv("DEPLOYMENT_ENV", "local-research"),
             "storage": investigation_storage,
             "case_storage": case_storage,
-            "llm_provider": "bedrock" if llm_configured else "not_configured",
-            "llm_model": bedrock_model_id() if llm_configured else "",
+            "llm_provider": llm_provider() if llm_configured else "not_configured",
+            "llm_model": llm_model_id() if llm_configured else "",
             "llm_timeout_s": llm_timeout_s(),
             "guardrail_configured": guardrail_configured,
         }
@@ -263,6 +303,19 @@ def create_app(
         require_api_token(authorization)
         return {"cases": [item.model_dump(mode="json") for item in list_cases(app.state.cases)]}
 
+    @app.get("/api/shift-workspace")
+    def shift_workspace(
+        assignee: str | None = Query(default=None, max_length=120),
+        status: ShiftWorkspaceFilter = Query(default="action_required"),
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        require_api_token(authorization)
+        return build_shift_workspace(
+            assignee=assignee,
+            status=status,
+            cases=app.state.cases,
+        ).model_dump(mode="json")
+
     @app.get("/api/cases/{case_id}")
     def case_detail(
         case_id: str,
@@ -273,6 +326,105 @@ def create_app(
             return get_case(case_id, app.state.cases).model_dump(mode="json")
         except CaseNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Case not found") from exc
+
+    @app.post("/api/cases/{case_id}/structuring-proposals")
+    def create_structuring_proposals(
+        case_id: str,
+        body: StructuringProposalRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        """Return reviewable note interpretations without changing the Case."""
+
+        require_api_token(authorization)
+        try:
+            case = get_case(case_id, app.state.cases)
+        except CaseNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Case not found") from exc
+        if case.version != body.expected_version:
+            raise HTTPException(status_code=409, detail="Case changed. Refresh and retry.")
+        proposals = build_structuring_proposals(
+            case=case,
+            note=body.note,
+            author=body.author,
+            observed_at=body.observed_at,
+            scope=body.scope,
+            source_location=body.source_location,
+            provenance=body.provenance,
+            include_llm=body.include_llm,
+        )
+        for proposal in proposals:
+            app.state.structuring_proposals.save(proposal)
+        return StructuringProposalResponse(
+            case_id=case.id,
+            case_version=case.version,
+            proposals=proposals,
+        ).model_dump(mode="json")
+
+    @app.get("/api/cases/{case_id}/structuring-proposals")
+    def list_structuring_proposals(
+        case_id: str,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        """Restore pending proposals without treating them as Case state."""
+
+        require_api_token(authorization)
+        try:
+            case = get_case(case_id, app.state.cases)
+        except CaseNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Case not found") from exc
+        return StructuringProposalResponse(
+            case_id=case.id,
+            case_version=case.version,
+            proposals=app.state.structuring_proposals.list_for_case(case.id),
+        ).model_dump(mode="json")
+
+    @app.post("/api/cases/{case_id}/structuring-proposals/{proposal_id}/accept")
+    def accept_case_structuring_proposal(
+        case_id: str,
+        proposal_id: str,
+        body: StructuringProposalAcceptRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, object]:
+        """Apply exactly one explicitly reviewed proposal to Case state."""
+
+        require_api_token(authorization)
+        proposal = app.state.structuring_proposals.get(proposal_id)
+        if proposal is None or proposal.case_id != case_id:
+            raise HTTPException(status_code=404, detail="Structuring proposal not found")
+        try:
+            case = get_case(case_id, app.state.cases)
+            if case.version != body.expected_version or proposal.case_version != case.version:
+                raise CaseConflictError(case_id)
+            updated = accept_structuring_proposal(
+                proposal=proposal,
+                request=body,
+                investigations=app.state.investigations,
+                cases=app.state.cases,
+            )
+        except CaseNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Case not found") from exc
+        except CaseConflictError as exc:
+            raise HTTPException(status_code=409, detail="Case changed. Refresh and retry.") from exc
+        except CaseTransitionError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        app.state.structuring_proposals.delete(proposal_id)
+        return updated.model_dump(mode="json")
+
+    @app.post("/api/cases/{case_id}/structuring-proposals/{proposal_id}/dismiss")
+    def dismiss_case_structuring_proposal(
+        case_id: str,
+        proposal_id: str,
+        body: StructuringProposalDismissRequest,
+        authorization: str | None = Header(default=None),
+    ) -> dict[str, str]:
+        """Remove a proposal from the review queue without mutating the Case."""
+
+        require_api_token(authorization)
+        proposal = app.state.structuring_proposals.get(proposal_id)
+        if proposal is None or proposal.case_id != case_id:
+            raise HTTPException(status_code=404, detail="Structuring proposal not found")
+        app.state.structuring_proposals.delete(proposal_id)
+        return {"proposal_id": proposal_id, "status": "dismissed"}
 
     @app.post("/api/cases/{case_id}/observations")
     def record_observation(
@@ -290,6 +442,7 @@ def create_app(
                 scope=body.scope,
                 source_location=body.source_location,
                 provenance=body.provenance,
+                is_current_state=body.is_current_state,
                 expected_version=body.expected_version,
                 cases=app.state.cases,
             )
@@ -453,14 +606,19 @@ def create_app(
         case_id: str,
         body: HandoverCheckRequest,
         authorization: str | None = Header(default=None),
+        actor_id: str | None = Header(default=None, alias="X-Actor-Id"),
+        actor_role: ActorRole | None = Header(default=None, alias="X-Actor-Role"),
     ) -> dict[str, object]:
         require_api_token(authorization)
+        actor = resolve_actor_context(actor_id, actor_role, body.sender)
         try:
             findings, linted_case = check_handover(
                 case_id=case_id,
                 expected_version=body.expected_version,
                 sender=body.sender,
                 receiver=body.receiver,
+                actor_id=actor.actor_id,
+                actor_role=actor.role,
                 investigations=app.state.investigations,
                 cases=app.state.cases,
             )
@@ -481,14 +639,19 @@ def create_app(
         case_id: str,
         body: HandoverPublishRequest,
         authorization: str | None = Header(default=None),
+        actor_id: str | None = Header(default=None, alias="X-Actor-Id"),
+        actor_role: ActorRole | None = Header(default=None, alias="X-Actor-Role"),
     ) -> dict[str, object]:
         require_api_token(authorization)
+        actor = resolve_actor_context(actor_id, actor_role, body.sender)
         try:
             case = publish_handover(
                 case_id=case_id,
                 sender=body.sender,
                 receiver=body.receiver,
                 exception_reason=body.exception_reason,
+                actor_id=actor.actor_id,
+                actor_role=actor.role,
                 expected_version=body.expected_version,
                 investigations=app.state.investigations,
                 cases=app.state.cases,
@@ -505,6 +668,8 @@ def create_app(
                     "findings": [item.model_dump(mode="json") for item in exc.findings],
                 },
             ) from exc
+        except CaseTransitionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
         return case.model_dump(mode="json")
 
     @app.post("/api/cases/{case_id}/handovers/{handover_id}/acceptance")
@@ -513,14 +678,19 @@ def create_app(
         handover_id: str,
         body: HandoverAcceptanceRequest,
         authorization: str | None = Header(default=None),
+        actor_id: str | None = Header(default=None, alias="X-Actor-Id"),
+        actor_role: ActorRole | None = Header(default=None, alias="X-Actor-Role"),
     ) -> dict[str, object]:
         require_api_token(authorization)
+        actor = resolve_actor_context(actor_id, actor_role, body.accepted_by)
         try:
             case = accept_handover(
                 case_id=case_id,
                 handover_id=handover_id,
                 snapshot_id=body.snapshot_id,
                 accepted_by=body.accepted_by,
+                actor_id=actor.actor_id,
+                actor_role=actor.role,
                 expected_version=body.expected_version,
                 cases=app.state.cases,
             )
@@ -538,14 +708,19 @@ def create_app(
         handover_id: str,
         body: HandoverChangeRequest,
         authorization: str | None = Header(default=None),
+        actor_id: str | None = Header(default=None, alias="X-Actor-Id"),
+        actor_role: ActorRole | None = Header(default=None, alias="X-Actor-Role"),
     ) -> dict[str, object]:
         require_api_token(authorization)
+        actor = resolve_actor_context(actor_id, actor_role, body.requested_by)
         try:
             case = request_handover_changes(
                 case_id=case_id,
                 handover_id=handover_id,
                 requested_by=body.requested_by,
                 reason=body.reason,
+                actor_id=actor.actor_id,
+                actor_role=actor.role,
                 expected_version=body.expected_version,
                 cases=app.state.cases,
             )
